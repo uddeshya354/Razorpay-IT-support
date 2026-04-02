@@ -47,6 +47,7 @@ location_mapping = {
     "Ahmedabad": {"City": "Ahmedabad", "State": "Gujarat"}
 }
 
+
 # --- 2. Helper Functions ---
 def extract_locker_bank(notes):
     if pd.isna(notes): return ""
