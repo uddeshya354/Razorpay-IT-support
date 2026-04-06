@@ -36,31 +36,35 @@ def extract_locker_bank(notes):
     try:
         data = json.loads(notes)
         
-        # 1. Try the standard keys first
+        # 1. Try standard name keys
         locker_name = data.get("Locker Bank Name", data.get("lockerBankName", ""))
-        
-        # 2. If it's a valid, specific name, return it
         if locker_name and locker_name.strip().lower() != "luggage":
             return locker_name
             
-        # 3. Fallback A: Look for the direct "tenant" key
+        # 2. Try the newly discovered lockerBankLocation key!
+        locker_location = data.get("lockerBankLocation", "")
+        if locker_location and locker_location.strip().lower() not in ["", "luggage"]:
+            return locker_location
+            
+        # 3. Check "tenant" key (If it's a URL, extract the word. If not, just use the word)
         tenant = data.get("tenant", "")
         if tenant:
-            return tenant
-            
-        # 4. Fallback B: Extract from the URL in "Tenant Name" or "tenant_host"
+            if "http" in tenant:
+                match = re.search(r'://([^.]+)\.', tenant)
+                if match: return match.group(1)
+            else:
+                return tenant
+                
+        # 4. Check "Tenant Name" or "tenant_host"
         tenant_url = data.get("Tenant Name", data.get("tenant_host", ""))
         if tenant_url:
-            # This regex looks for text between "://" and the first dot "."
-            # Example: https://katpadi.durolt.com/ -> extracts "katpadi"
             match = re.search(r'://([^.]+)\.', tenant_url)
-            if match:
-                return match.group(1)
-                
-        return "" # If all else fails, return blank
+            if match: return match.group(1)
+            
+        return ""
     except:
         return ""
-        
+
 def clean_locker_name(name):
     if not name: return ""
     clean_name = re.sub(r'(?i)\b(luggage|station|railway|temple|junction)\b', '', str(name))
@@ -68,7 +72,6 @@ def clean_locker_name(name):
     return clean_name.strip()
 
 def process_dataframe(df):
-    """Applies extraction and mapping to the uploaded dataframe."""
     if 'payment_notes' not in df.columns:
         st.error("Error: The uploaded file does not contain a 'payment_notes' column.")
         return df
@@ -76,12 +79,16 @@ def process_dataframe(df):
     df['Raw_Locker_Bank'] = df['payment_notes'].apply(extract_locker_bank)
     df['Cleaned_Location'] = df['Raw_Locker_Bank'].apply(clean_locker_name)
     
-    df['City'] = df['Cleaned_Location'].apply(lambda loc: location_mapping.get(loc, {}).get("City", "Unknown"))
-    df['State'] = df['Cleaned_Location'].apply(lambda loc: location_mapping.get(loc, {}).get("State", "Unknown"))
+    # NEW: Create a case-insensitive mapping dictionary on the fly
+    mapping_lower = {k.lower(): v for k, v in location_mapping.items()}
+    
+    # NEW: Apply the mapping while forcing the search word to lowercase
+    df['City'] = df['Cleaned_Location'].apply(lambda loc: mapping_lower.get(str(loc).lower(), {}).get("City", "Unknown"))
+    df['State'] = df['Cleaned_Location'].apply(lambda loc: mapping_lower.get(str(loc).lower(), {}).get("State", "Unknown"))
     
     df = df.drop(columns=['Raw_Locker_Bank', 'Cleaned_Location'])
     return df
-
+    
 st.set_page_config(page_title="Locker Settlement Processor", layout="centered")
 
 st.title("🧳 Locker Settlement Processor")
