@@ -13,21 +13,51 @@ location_mapping = {     "THVM": {"City": "Thivim", "State": "Goa"},   "katpadi"
 #         return data.get("Locker Bank Name", data.get("lockerBankName", ""))
 #     except:
 #         return ""
+# def extract_locker_bank(notes):
+#     if pd.isna(notes): return ""
+#     try:
+#         data = json.loads(notes)
+        
+#         # 1. Try the normal keys first
+#         locker_name = data.get("Locker Bank Name", data.get("lockerBankName", ""))
+        
+#         # 2. If the name is literally just "Luggage" (or empty), use the "tenant" key
+#         if locker_name.strip().lower() == "luggage" or not locker_name:
+#             tenant_name = data.get("tenant", "")
+#             if tenant_name:
+#                 return tenant_name # This will return "katpadi"
+                
+#         return locker_name
+#     except:
+#         return ""
+
 def extract_locker_bank(notes):
     if pd.isna(notes): return ""
     try:
         data = json.loads(notes)
         
-        # 1. Try the normal keys first
+        # 1. Try the standard keys first
         locker_name = data.get("Locker Bank Name", data.get("lockerBankName", ""))
         
-        # 2. If the name is literally just "Luggage" (or empty), use the "tenant" key
-        if locker_name.strip().lower() == "luggage" or not locker_name:
-            tenant_name = data.get("tenant", "")
-            if tenant_name:
-                return tenant_name # This will return "katpadi"
+        # 2. If it's a valid, specific name, return it
+        if locker_name and locker_name.strip().lower() != "luggage":
+            return locker_name
+            
+        # 3. Fallback A: Look for the direct "tenant" key
+        tenant = data.get("tenant", "")
+        if tenant:
+            return tenant
+            
+        # 4. Fallback B: Extract from the URL in "Tenant Name" or "tenant_host"
+        tenant_url = data.get("Tenant Name", data.get("tenant_host", ""))
+        if tenant_url:
+            # This regex looks for text between "://" and the first dot "."
+            # Example: https://katpadi.durolt.com/ -> extracts "katpadi"
+            match = re.search(r'://([^.]+)\.', tenant_url)
+            if match:
+                return match.group(1)
                 
-        return locker_name
+        return "" # If all else fails, return blank
     except:
         return ""
         
