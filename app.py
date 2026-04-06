@@ -138,18 +138,18 @@ def process_dataframe(df, backend_df=None):
 # --- 4. Streamlit UI ---
 st.set_page_config(page_title="Locker Settlement Processor", layout="wide")
 
-st.title("🧳 Locker Settlement Processor")
+st.title(" Locker Settlement Processor")
 st.write("Upload your Settlement file. If some locations fail to map, upload the Backend Data to cross-reference them automatically.")
 
 # Create two columns for uploading the two files side-by-side
 col1, col2 = st.columns(2)
 
 with col1:
-    st.subheader("1. Settlement Data (Required)")
+    st.subheader("1. Settlement Data")
     settlement_file = st.file_uploader("Upload Settlement .xlsx/.csv", type=['xlsx', 'csv'], key="settlement")
 
 with col2:
-    st.subheader("2. Backend Data (Optional Fallback)")
+    st.subheader("2. Backend Data (Optional)")
     backend_file = st.file_uploader("Upload Backend .xlsx/.csv", type=['xlsx', 'csv'], key="backend")
 
 
