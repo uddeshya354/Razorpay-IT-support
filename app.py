@@ -39,7 +39,7 @@ location_mapping = {
     "CSMT": {"City": "Mumbai", "State": "Maharashtra"},
     "Jalandhar": {"City": "Jalandhar", "State": "Punjab"},
     "SEG": {"City": "Shegaon", "State": "Maharashtra"},
-    "Tiruvannamalai Arunachaleswarar": {"City": "Tiruvannamalai", "State": "Tamil Nadu"},
+    "Tiruvannamalai Arunachaleswarar Temple": {"City": "Tiruvannamalai", "State": "Tamil Nadu"},
     "Ayodhya": {"City": "Ayodhya", "State": "Uttar Pradesh"},
     "Lucknow": {"City": "Lucknow", "State": "Uttar Pradesh"},
     "SANTRAGACHI": {"City": "Howrah", "State": "West Bengal"},
