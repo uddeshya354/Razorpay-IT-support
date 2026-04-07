@@ -111,7 +111,7 @@ def process_dataframe(df, backend_df=None):
     return df
 
 def generate_backend_analytics(backend_df):
-    """Processes backend data for advanced analytics"""
+    """Processes backend data for advanced analytics and User RFM inferences"""
     if 'Payment Type' in backend_df.columns:
         df_filtered = backend_df[backend_df['Payment Type'].str.lower() == 'payment'].copy()
     else:
@@ -137,6 +137,96 @@ def generate_backend_analytics(backend_df):
     else:
         time_dist = pd.DataFrame()
 
+    # 2. 🚀 UPDATED: Location Performance (Revenue, Transactions, AOV, Std Dev, Entropy, Sizes)
+    def calc_entropy(series):
+        counts = series.value_counts(normalize=True)
+        return -(counts * np.log2(counts)).sum()
+
+    if 'Locker Bank' in df_filtered.columns and 'Amount' in df_filtered.columns:
+        # Calculate multiple aggregations at once
+        loc_rev = df_filtered.groupby('Locker Bank')['Amount'].agg(
+            Total_Revenue='sum',
+            Total_Transactions='count',
+            AOV='mean',
+            Revenue_Std_Dev='std'
+        ).reset_index()
+        
+        # Clean up the numbers
+        loc_rev['Total_Revenue'] = loc_rev['Total_Revenue'].round(2)
+        loc_rev['AOV'] = loc_rev['AOV'].round(2)
+        loc_rev['Revenue_Std_Dev'] = loc_rev['Revenue_Std_Dev'].fillna(0).round(2) # Fill NaN with 0 for single transactions
+        
+        # Sort by Revenue
+        loc_rev = loc_rev.sort_values(by='Total_Revenue', ascending=False)
+        
+        if 'Locker Size' in df_filtered.columns:
+            # Entropy
+            entropy_df = df_filtered.groupby('Locker Bank')['Locker Size'].apply(calc_entropy).reset_index(name='Size Entropy')
+            loc_rev = pd.merge(loc_rev, entropy_df, on='Locker Bank', how='left')
+            loc_rev['Size Entropy'] = loc_rev['Size Entropy'].round(3)
+            
+            # Size Distribution PER BANK
+            bank_sizes = pd.crosstab(df_filtered['Locker Bank'], df_filtered['Locker Size'], normalize='index') * 100
+            bank_sizes = bank_sizes.round(2).astype(str) + '%'
+            bank_sizes.columns = [f"% {col}" for col in bank_sizes.columns]
+            bank_sizes = bank_sizes.reset_index()
+            
+            # Merge the percentages into the Location Revenue table
+            loc_rev = pd.merge(loc_rev, bank_sizes, on='Locker Bank', how='left')
+    else:
+        loc_rev = pd.DataFrame()
+
+    # 3. City Revenue
+    if 'City' in df_filtered.columns and 'Amount' in df_filtered.columns:
+        city_rev = df_filtered.groupby('City')['Amount'].sum().reset_index().sort_values(by='Amount', ascending=False)
+    else:
+        city_rev = pd.DataFrame()
+
+    # 4. User Behavior & Cohort Inferences (RFM)
+    user_df = pd.DataFrame()
+    repeat_users = pd.DataFrame()
+    
+    if 'User Mobile' in df_filtered.columns and 'Date Updated' in df_filtered.columns:
+        df_users = df_filtered.dropna(subset=['Date Updated', 'User Mobile']).copy()
+        
+        if not df_users.empty:
+            df_users['date_only'] = df_users['Date Updated'].dt.date
+            df_users['hour'] = df_users['Date Updated'].dt.hour
+            
+            # Base aggregations (RFM)
+            user_df = df_users.groupby('User Mobile').agg(
+                total_transactions=('Reference Id', 'count') if 'Reference Id' in df_users.columns else ('Amount', 'count'),
+                active_days=('date_only', 'nunique'),
+                first_usage=('Date Updated', 'min'),
+                last_usage=('Date Updated', 'max'),
+                total_amount=('Amount', 'sum')
+            ).reset_index()
+
+            # Identify loyal users based on your logic
+            repeat_users = user_df[
+                (user_df['total_transactions'] >= 2) & 
+                (user_df['active_days'] >= 2)
+            ].copy().sort_values('total_transactions', ascending=False)
+            
+            # Size mapping & Entropy
+            if 'Locker Size' in df_users.columns:
+                size_map = {'Medium': 'M', 'Large': 'L', 'Extra Large': 'XL'}
+                df_users['size_clean'] = df_users['Locker Size'].map(size_map).fillna('unknown')
+                
+                size_counts = df_users.groupby(['User Mobile', 'size_clean']).size().unstack(fill_value=0)
+                size_pct = size_counts.div(size_counts.sum(axis=1), axis=0).fillna(0) * 100
+                size_pct = size_pct.rename(columns={'M': 'pct_M', 'L': 'pct_L', 'XL': 'pct_XL'})
+                
+                user_df = user_df.merge(size_pct, left_on='User Mobile', right_index=True, how='left').fillna(0)
+                
+                size_cols = [c for c in ['pct_M', 'pct_L', 'pct_XL'] if c in user_df.columns]
+                if size_cols:
+                    user_df['dominant_size'] = user_df[size_cols].idxmax(axis=1).str.replace('pct_', '')
+                    user_df['size_entropy'] = user_df[size_cols].apply(
+                        lambda row: entropy(row.values / 100) if row.sum() > 0 else 0.0, axis=1
+                    ).round(3)
+
+    return loc_rev, city_rev, time_dist, user_df, repeat_users
     # 2. Location Revenue, Size Entropy, and Per-Bank Size Distribution
     def calc_entropy(series):
         counts = series.value_counts(normalize=True)
@@ -214,7 +304,11 @@ with tab1:
                     loc_rev.to_excel(writer, index=False, sheet_name='Bank_Performance')
                     city_rev.to_excel(writer, index=False, sheet_name='Revenue_By_City')
                     time_dist.to_excel(writer, index=False, sheet_name='Time_of_Day_Stats')
-            
+            if backend_file is not None:
+    # ... existing sheets ...
+                if not user_df.empty:
+                    user_df.to_excel(writer, index=False, sheet_name='All_User_Analytics')
+                    repeat_users.to_excel(writer, index=False, sheet_name='Top_Repeat_Users')
             st.download_button(
                 label="📥 Download Advanced Multi-Sheet Report",
                 data=output.getvalue(),
@@ -224,23 +318,60 @@ with tab1:
         except Exception as e:
             st.error(f"An error occurred: {e}")
 
+# with tab2:
+#     if backend_file is None:
+#         st.info("👈 Please upload the Backend Data file in the 'Data Processing' tab to view analytics.")
+#     else:
+#         st.subheader("Backend Operations Insights")
+#         st.write("*Note: Filtering for rows where `Payment Type` = 'Payment'*")
+        
+#         c1, c2 = st.columns(2)
+#         with c1:
+#             st.write("### 🕒 Bookings by Time of Day")
+#             st.dataframe(time_dist, use_container_width=True)
+            
+#         with c2:
+#             st.write("### 🏙️ Revenue by City")
+#             st.dataframe(city_rev, use_container_width=True)
+            
+#         st.markdown("---")
+#         st.write("### 📍 Location Performance: Revenue, Entropy & Size Distribution")
+#         st.caption("This table breaks down total revenue alongside the exact percentage of M, L, and XL locker bookings for **each individual location**.")
+#         st.dataframe(loc_rev, use_container_width=True)
+
 with tab2:
     if backend_file is None:
         st.info("👈 Please upload the Backend Data file in the 'Data Processing' tab to view analytics.")
     else:
-        st.subheader("Backend Operations Insights")
+        st.subheader("📊 Backend Operations Insights")
         st.write("*Note: Filtering for rows where `Payment Type` = 'Payment'*")
         
-        c1, c2 = st.columns(2)
-        with c1:
-            st.write("### 🕒 Bookings by Time of Day")
-            st.dataframe(time_dist, use_container_width=True)
-            
-        with c2:
-            st.write("### 🏙️ Revenue by City")
-            st.dataframe(city_rev, use_container_width=True)
-            
+        # ... [Keep your existing Time of Day, City Revenue, and Location Revenue tables here] ...
+        
         st.markdown("---")
-        st.write("### 📍 Location Performance: Revenue, Entropy & Size Distribution")
-        st.caption("This table breaks down total revenue alongside the exact percentage of M, L, and XL locker bookings for **each individual location**.")
-        st.dataframe(loc_rev, use_container_width=True)
+        st.subheader("👥 User Behavior & Cohort Inferences")
+        
+        if not user_df.empty:
+            # Calculate top-level KPIs
+            total_users = len(user_df)
+            total_repeat = len(repeat_users)
+            repeat_rate = (total_repeat / total_users) * 100 if total_users > 0 else 0
+            
+            kpi1, kpi2, kpi3 = st.columns(3)
+            kpi1.metric("Total Unique Users", f"{total_users}")
+            kpi2.metric("Highly Loyal Users (≥3 bookings)", f"{total_repeat}")
+            kpi3.metric("Customer Retention Rate", f"{repeat_rate:.1f}%")
+            
+            st.write("### 🏆 Top Repeat Customers Profile")
+            st.caption("These are your most valuable users. High 'Size Entropy' indicates they use multiple locker sizes depending on their needs.")
+            
+            # Select the most interesting columns from your logic to show
+            display_cols = ['User Mobile', 'total_transactions', 'active_days', 'total_amount']
+            if 'dominant_size' in user_df.columns:
+                display_cols.extend(['dominant_size', 'size_entropy'])
+                
+            st.dataframe(repeat_users[display_cols].head(15), use_container_width=True)
+            
+            # Export the full user list in the download section
+        else:
+            st.warning("Not enough user data to generate cohort inferences.")
