@@ -6,7 +6,7 @@ import io
 import numpy as np
 from scipy.stats import entropy
 import holidays
-
+import pulp
 # --- 1. Define the Mapping Dictionaries ---
 location_mapping = {
     "THVM": {"City": "Thivim", "State": "Goa"},
@@ -395,3 +395,81 @@ with tab2:
                     
                 if not repeat_users.empty:
                     st.dataframe(repeat_users.sort_values('total_transactions', ascending=False)[display_cols].head(15), use_container_width=True)
+
+
+with tab3:
+    st.subheader("🛠️ AI Hardware Layout Optimizer")
+    st.write("Use historical backend data to generate mathematically optimal locker blueprints for new sites using PuLP.")
+    
+    if backend_file is not None and not loc_rev.empty:
+        # 1. UI for User Inputs
+        c1, c2 = st.columns(2)
+        with c1:
+            target_station = st.selectbox("Select existing station to use as Demand Profile:", loc_rev['Locker Bank'].tolist())
+            total_cols_available = st.number_input("Max Columns Available at New Site:", min_value=10, max_value=200, value=46)
+        
+        with c2:
+            st.info("Physical Hardware Specs")
+            lockers_per_col_M = st.number_input("M Lockers per column:", value=4)
+            lockers_per_col_L = st.number_input("L Lockers per column:", value=3)
+            lockers_per_col_XL = st.number_input("XL Lockers per column:", value=2)
+
+        # 2. Extract live parameters from your generated analytics!
+        station_data = loc_rev[loc_rev['Locker Bank'] == target_station].iloc[0]
+        
+        st.write("---")
+        st.write(f"**Extracted Live Profile for {target_station}:**")
+        st.write(f"Average Order Value: ₹{station_data['AOV']}")
+        st.write(f"Historical Demand: **{station_data.get('% M', '0%')}** Medium | **{station_data.get('% L', '0%')}** Large | **{station_data.get('% XL', '0%')}** Extra Large")
+        
+        if st.button("🚀 Run PuLP Optimization"):
+            with st.spinner("Running integer optimization..."):
+                # Translate your dynamic AOV into the rev_per_locker input
+                # (You would normally calculate size-specific AOV here, but using base AOV with multipliers for demo)
+                base_aov = station_data['AOV']
+                rev_per_locker = {'M': base_aov * 0.8, 'L': base_aov * 1.2, 'XL': base_aov * 1.8}
+                
+                lockers_per_column = {'M': lockers_per_col_M, 'L': lockers_per_col_L, 'XL': lockers_per_col_XL}
+                
+                # Dynamic Min Constraints based on actual percentage demand
+                pct_m = float(str(station_data.get('% M', '0')).replace('%','')) / 100
+                pct_l = float(str(station_data.get('% L', '0')).replace('%','')) / 100
+                pct_xl = float(str(station_data.get('% XL', '0')).replace('%','')) / 100
+                
+                # Minimums dynamically set to ensure we build for actual observed demand
+                min_columns = {
+                    'M': max(2, int(total_cols_available * pct_m * 0.5)),
+                    'L': max(2, int(total_cols_available * pct_l * 0.5)),
+                    'XL': max(2, int(total_cols_available * pct_xl * 0.5))
+                }
+
+                # Your exact PuLP Logic
+                prob = pulp.LpProblem("Locker_Revenue_Optimization", pulp.LpMaximize)
+                c = pulp.LpVariable.dicts("columns", ['M', 'L', 'XL'], lowBound=0, cat='Integer')
+
+                # Objective
+                prob += pulp.lpSum(c[size] * lockers_per_column[size] * rev_per_locker[size] for size in ['M', 'L', 'XL'])
+
+                # Total Space Constraint
+                prob += pulp.lpSum(c[size] for size in ['M', 'L', 'XL']) <= total_cols_available
+                
+                # Min Constraints
+                for size in ['M', 'L', 'XL']:
+                    prob += c[size] >= min_columns[size]
+
+                prob.solve(pulp.PULP_CBC_CMD(msg=0))
+
+                if pulp.LpStatus[prob.status] == 'Optimal':
+                    solution = {size: int(c[size].value()) for size in ['M', 'L', 'XL']}
+                    
+                    st.success("✅ Optimal Blueprint Generated!")
+                    r1, r2, r3 = st.columns(3)
+                    r1.metric("Medium Columns", solution['M'], f"{solution['M'] * lockers_per_col_M} total doors")
+                    r2.metric("Large Columns", solution['L'], f"{solution['L'] * lockers_per_col_L} total doors")
+                    r3.metric("XL Columns", solution['XL'], f"{solution['XL'] * lockers_per_col_XL} total doors")
+                    
+                    st.write(f"**Projected Daily Revenue Capability:** ₹{int(pulp.value(prob.objective)):,}")
+                else:
+                    st.error("Could not find an optimal solution with the given constraints.")
+    else:
+        st.info("Upload backend data in Tab 1 to unlock the Hardware Optimizer.")
