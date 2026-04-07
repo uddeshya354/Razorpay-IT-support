@@ -46,8 +46,9 @@ location_mapping = {
     "Shalimar": {"City": "Howrah", "State": "West Bengal"},
     "Statue of Unity": {"City": "Kevadia", "State": "Gujarat"},
     "Ahmedabad": {"City": "Ahmedabad", "State": "Gujarat"},
-    "Kozhikode": {"City": "Kozhikode", "State": "Kerala"} # Added Kozhikode
+    "Kozhikode": {"City": "Kozhikode", "State": "Kerala"}
 }
+mapping_lower = {k.lower(): v for k, v in location_mapping.items()}
 
 # --- 2. Helper Functions ---
 def extract_locker_bank(notes):
@@ -74,7 +75,6 @@ def extract_locker_bank(notes):
         if tenant_url:
             match = re.search(r'://([^.]+)\.', tenant_url)
             if match: return match.group(1)
-            
         return ""
     except:
         return ""
@@ -91,106 +91,127 @@ def process_dataframe(df, backend_df=None):
         st.error("Error: The settlement file does not contain a 'payment_notes' column.")
         return df
 
-    # Step 1: Initial Extraction from JSON
     df['Raw_Locker_Bank'] = df['payment_notes'].apply(extract_locker_bank)
     df['Cleaned_Location'] = df['Raw_Locker_Bank'].apply(clean_locker_name)
-    
-    mapping_lower = {k.lower(): v for k, v in location_mapping.items()}
     
     df['City'] = df['Cleaned_Location'].apply(lambda loc: mapping_lower.get(str(loc).lower(), {}).get("City", "Unknown"))
     df['State'] = df['Cleaned_Location'].apply(lambda loc: mapping_lower.get(str(loc).lower(), {}).get("State", "Unknown"))
     
-    # Step 2: Fallback to Backend Data if City is Unknown
     if backend_df is not None and 'entity_id' in df.columns:
-        # Find which rows failed mapping
         unknown_mask = df['City'] == "Unknown"
-        
-        if unknown_mask.any():
-            # Check if backend file has the required columns
-            if 'Payment ID' in backend_df.columns and 'Locker Bank' in backend_df.columns:
-                
-                # Create a lookup dictionary mapping Payment ID -> Locker Bank
-                backend_lookup = backend_df.drop_duplicates(subset=['Payment ID']).set_index('Payment ID')['Locker Bank'].to_dict()
-                
-                # Apply the lookup to find missing locker banks using entity_id
-                df.loc[unknown_mask, 'Backend_Raw_Name'] = df.loc[unknown_mask, 'entity_id'].map(backend_lookup)
-                
-                # Clean the newly found backend names
-                df.loc[unknown_mask, 'Backend_Cleaned'] = df.loc[unknown_mask, 'Backend_Raw_Name'].apply(clean_locker_name)
-                
-                # Map the City and State for these newly found locations
-                df.loc[unknown_mask, 'City'] = df.loc[unknown_mask, 'Backend_Cleaned'].apply(
-                    lambda loc: mapping_lower.get(str(loc).lower(), {}).get("City", "Unknown") if pd.notna(loc) else "Unknown"
-                )
-                df.loc[unknown_mask, 'State'] = df.loc[unknown_mask, 'Backend_Cleaned'].apply(
-                    lambda loc: mapping_lower.get(str(loc).lower(), {}).get("State", "Unknown") if pd.notna(loc) else "Unknown"
-                )
-                
-                # Drop temporary backend lookup columns
-                df = df.drop(columns=['Backend_Raw_Name', 'Backend_Cleaned'], errors='ignore')
-            else:
-                st.warning("Could not cross-reference. Backend file is missing 'Payment ID' or 'Locker Bank' columns.")
+        if unknown_mask.any() and 'Payment ID' in backend_df.columns and 'Locker Bank' in backend_df.columns:
+            backend_lookup = backend_df.drop_duplicates(subset=['Payment ID']).set_index('Payment ID')['Locker Bank'].to_dict()
+            df.loc[unknown_mask, 'Backend_Raw_Name'] = df.loc[unknown_mask, 'entity_id'].map(backend_lookup)
+            df.loc[unknown_mask, 'Backend_Cleaned'] = df.loc[unknown_mask, 'Backend_Raw_Name'].apply(clean_locker_name)
+            df.loc[unknown_mask, 'City'] = df.loc[unknown_mask, 'Backend_Cleaned'].apply(
+                lambda loc: mapping_lower.get(str(loc).lower(), {}).get("City", "Unknown") if pd.notna(loc) else "Unknown"
+            )
+            df.loc[unknown_mask, 'State'] = df.loc[unknown_mask, 'Backend_Cleaned'].apply(
+                lambda loc: mapping_lower.get(str(loc).lower(), {}).get("State", "Unknown") if pd.notna(loc) else "Unknown"
+            )
+            df = df.drop(columns=['Backend_Raw_Name', 'Backend_Cleaned'], errors='ignore')
 
-    # Drop intermediate columns
     df = df.drop(columns=['Raw_Locker_Bank', 'Cleaned_Location'])
     return df
+
+def generate_backend_analytics(backend_df):
+    """Processes backend data for analytics (Revenue & Size Distribution)"""
+    # 1. Filter only 'Payment' type
+    if 'Payment Type' in backend_df.columns:
+        df_filtered = backend_df[backend_df['Payment Type'].str.lower() == 'payment'].copy()
+    else:
+        df_filtered = backend_df.copy()
+
+    # 2. Map Cities for the Backend Data
+    if 'Locker Bank' in df_filtered.columns:
+        df_filtered['Cleaned_Location'] = df_filtered['Locker Bank'].apply(clean_locker_name)
+        df_filtered['City'] = df_filtered['Cleaned_Location'].apply(lambda loc: mapping_lower.get(str(loc).lower(), {}).get("City", "Unknown"))
+    
+    # 3. Aggregations
+    # Location Revenue
+    loc_rev = df_filtered.groupby('Locker Bank')['Amount'].sum().reset_index().sort_values(by='Amount', ascending=False)
+    # City Revenue
+    city_rev = df_filtered.groupby('City')['Amount'].sum().reset_index().sort_values(by='Amount', ascending=False)
+    
+    # Size Percentage
+    if 'Locker Size' in df_filtered.columns:
+        size_dist = df_filtered['Locker Size'].value_counts(normalize=True).reset_index()
+        size_dist.columns = ['Locker Size', 'Percentage']
+        size_dist['Percentage'] = (size_dist['Percentage'] * 100).round(2).astype(str) + '%'
+    else:
+        size_dist = pd.DataFrame()
+
+    return loc_rev, city_rev, size_dist
 
 # --- 4. Streamlit UI ---
 st.set_page_config(page_title="Locker Settlement Processor", layout="wide")
 
-st.title(" Locker Settlement Processor")
-st.write("Upload your Settlement file. If some locations fail to map, upload the Backend Data to cross-reference them automatically.")
+st.title("🧳 Locker Settlement Processor & Analytics")
 
-# Create two columns for uploading the two files side-by-side
-col1, col2 = st.columns(2)
+# Tabbed Interface
+tab1, tab2 = st.tabs(["⚙️ Data Processing", "📊 Backend Analytics Dashboard"])
 
-with col1:
-    st.subheader("1. Settlement Data")
-    settlement_file = st.file_uploader("Upload Settlement .xlsx/.csv", type=['xlsx', 'csv'], key="settlement")
+with tab1:
+    st.write("Upload files to map missing locations and generate reports.")
+    col1, col2 = st.columns(2)
+    with col1:
+        settlement_file = st.file_uploader("1. Upload Settlement .xlsx/.csv", type=['xlsx', 'csv'], key="settlement")
+    with col2:
+        backend_file = st.file_uploader("2. Upload Backend .xlsx/.csv (For mapping & analytics)", type=['xlsx', 'csv'], key="backend")
 
-with col2:
-    st.subheader("2. Backend Data (Optional)")
-    backend_file = st.file_uploader("Upload Backend .xlsx/.csv", type=['xlsx', 'csv'], key="backend")
+    if settlement_file is not None:
+        try:
+            df = pd.read_csv(settlement_file) if settlement_file.name.endswith('.csv') else pd.read_excel(settlement_file)
+            backend_df = None
+            loc_rev, city_rev, size_dist = None, None, None
 
+            if backend_file is not None:
+                backend_df = pd.read_csv(backend_file) if backend_file.name.endswith('.csv') else pd.read_excel(backend_file)
+                loc_rev, city_rev, size_dist = generate_backend_analytics(backend_df)
+                st.success("Backend data loaded. Missing locations cross-referenced and Analytics generated!")
+            
+            processed_df = process_dataframe(df, backend_df)
+            
+            st.write("### Processed Data Preview")
+            st.dataframe(processed_df[['entity_id', 'payment_notes', 'City', 'State']].head())
+            
+            # Export to Excel with Multiple Sheets
+            output = io.BytesIO()
+            with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+                # Sheet 1: Main Processed Data
+                processed_df.to_excel(writer, index=False, sheet_name='Processed_Settlements')
+                
+                # Additional Sheets if Backend Data was provided
+                if backend_file is not None:
+                    loc_rev.to_excel(writer, index=False, sheet_name='Revenue_By_Location')
+                    city_rev.to_excel(writer, index=False, sheet_name='Revenue_By_City')
+                    size_dist.to_excel(writer, index=False, sheet_name='Locker_Size_Stats')
+            
+            st.download_button(
+                label="📥 Download Multi-Sheet Excel Report",
+                data=output.getvalue(),
+                file_name=f"Processed_Report.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+        except Exception as e:
+            st.error(f"An error occurred: {e}")
 
-if settlement_file is not None:
-    try:
-        # Load Settlement file
-        df = pd.read_csv(settlement_file) if settlement_file.name.endswith('.csv') else pd.read_excel(settlement_file)
+with tab2:
+    if backend_file is None:
+        st.info("👈 Please upload the Backend Data file in the 'Data Processing' tab to view analytics.")
+    else:
+        st.subheader("Backend Revenue & Usage Insights")
+        st.write("*Note: Filtering for rows where `Payment Type` = 'Payment'*")
         
-        # Load Backend file if provided
-        backend_df = None
-        if backend_file is not None:
-            backend_df = pd.read_csv(backend_file) if backend_file.name.endswith('.csv') else pd.read_excel(backend_file)
-            st.success("Both files loaded. Cross-referencing missing locations...")
-        else:
-            st.info("Processing without backend data. Any unmapped locations will show as 'Unknown'.")
-        
-        # Process data
-        processed_df = process_dataframe(df, backend_df)
-        
-        # Show results
-        st.write("### Data Preview (First 5 Rows)")
-        st.dataframe(processed_df[['entity_id', 'payment_notes', 'City', 'State']].head())
-        
-        # Count unknowns
-        unknowns = processed_df[processed_df['City'] == 'Unknown'].shape[0]
-        if unknowns > 0:
-            st.warning(f"⚠️ There are still {unknowns} rows with 'Unknown' locations.")
-        else:
-            st.success("✅ All locations mapped successfully!")
-        
-        # Download button
-        output = io.BytesIO()
-        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-            processed_df.to_excel(writer, index=False, sheet_name='Processed_Settlements')
-        
-        st.download_button(
-            label="📥 Download Processed Excel File",
-            data=output.getvalue(),
-            file_name=f"Processed_{settlement_file.name.split('.')[0]}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
-        
-    except Exception as e:
-        st.error(f"An error occurred: {e}")
+        c1, c2 = st.columns(2)
+        with c1:
+            st.write("### Revenue by City")
+            st.dataframe(city_rev, use_container_width=True)
+            st.bar_chart(city_rev.set_index('City')['Amount'])
+            
+        with c2:
+            st.write("### Locker Size Distribution (%)")
+            st.dataframe(size_dist, use_container_width=True)
+            
+        st.write("### Revenue by Specific Location (Locker Bank)")
+        st.dataframe(loc_rev)
