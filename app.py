@@ -4,7 +4,7 @@ import json
 import re
 import io
 import numpy as np
-from scipy.stats import entropy  # Added missing import for user entropy
+from scipy.stats import entropy
 
 # --- 1. Define the Mapping Dictionary ---
 location_mapping = {
@@ -58,11 +58,9 @@ def extract_locker_bank(notes):
     try:
         data = json.loads(notes)
         locker_name = data.get("Locker Bank Name", data.get("lockerBankName", ""))
-        if locker_name and locker_name.strip().lower() != "luggage":
-            return locker_name
+        if locker_name and locker_name.strip().lower() != "luggage": return locker_name
         locker_location = data.get("lockerBankLocation", "")
-        if locker_location and locker_location.strip().lower() not in ["", "luggage"]:
-            return locker_location
+        if locker_location and locker_location.strip().lower() not in ["", "luggage"]: return locker_location
         tenant = data.get("tenant", "")
         if tenant:
             if "http" in tenant:
@@ -95,130 +93,141 @@ def process_dataframe(df, backend_df=None):
     df['State'] = df['Cleaned_Location'].apply(lambda loc: mapping_lower.get(str(loc).lower(), {}).get("State", "Unknown"))
     
     if backend_df is not None and 'entity_id' in df.columns:
-        unknown_mask = df['City'] == "Unknown"
-        if unknown_mask.any() and 'Payment ID' in backend_df.columns and 'Locker Bank' in backend_df.columns:
-            backend_lookup = backend_df.drop_duplicates(subset=['Payment ID']).set_index('Payment ID')['Locker Bank'].to_dict()
-            df.loc[unknown_mask, 'Backend_Raw_Name'] = df.loc[unknown_mask, 'entity_id'].map(backend_lookup)
-            df.loc[unknown_mask, 'Backend_Cleaned'] = df.loc[unknown_mask, 'Backend_Raw_Name'].apply(clean_locker_name)
-            df.loc[unknown_mask, 'City'] = df.loc[unknown_mask, 'Backend_Cleaned'].apply(
-                lambda loc: mapping_lower.get(str(loc).lower(), {}).get("City", "Unknown") if pd.notna(loc) else "Unknown"
-            )
-            df.loc[unknown_mask, 'State'] = df.loc[unknown_mask, 'Backend_Cleaned'].apply(
-                lambda loc: mapping_lower.get(str(loc).lower(), {}).get("State", "Unknown") if pd.notna(loc) else "Unknown"
-            )
-            df = df.drop(columns=['Backend_Raw_Name', 'Backend_Cleaned'], errors='ignore')
+        # Check backend columns case-insensitively for the cross-reference mapping
+        backend_cols_lower = [c.strip().lower() for c in backend_df.columns]
+        if 'payment id' in backend_cols_lower and 'locker bank' in backend_cols_lower:
+            backend_df_clean = backend_df.copy()
+            backend_df_clean.columns = backend_cols_lower
+            
+            unknown_mask = df['City'] == "Unknown"
+            if unknown_mask.any():
+                backend_lookup = backend_df_clean.drop_duplicates(subset=['payment id']).set_index('payment id')['locker bank'].to_dict()
+                df.loc[unknown_mask, 'Backend_Raw_Name'] = df.loc[unknown_mask, 'entity_id'].map(backend_lookup)
+                df.loc[unknown_mask, 'Backend_Cleaned'] = df.loc[unknown_mask, 'Backend_Raw_Name'].apply(clean_locker_name)
+                df.loc[unknown_mask, 'City'] = df.loc[unknown_mask, 'Backend_Cleaned'].apply(
+                    lambda loc: mapping_lower.get(str(loc).lower(), {}).get("City", "Unknown") if pd.notna(loc) else "Unknown"
+                )
+                df.loc[unknown_mask, 'State'] = df.loc[unknown_mask, 'Backend_Cleaned'].apply(
+                    lambda loc: mapping_lower.get(str(loc).lower(), {}).get("State", "Unknown") if pd.notna(loc) else "Unknown"
+                )
+                df = df.drop(columns=['Backend_Raw_Name', 'Backend_Cleaned'], errors='ignore')
 
     df = df.drop(columns=['Raw_Locker_Bank', 'Cleaned_Location'])
     return df
 
-def generate_backend_analytics(backend_df):
-    """Processes backend data for advanced analytics and User RFM inferences"""
+def generate_backend_analytics(raw_backend_df):
+    """Processes backend data making it completely immune to hidden spaces or uppercase letters"""
+    df_filtered = raw_backend_df.copy()
     
-    # 1. Strip hidden spaces from column names just in case
-    backend_df.columns = backend_df.columns.str.strip()
+    # 1. STANDARDIZE ALL COLUMNS: lowercase and strip spaces
+    df_filtered.columns = df_filtered.columns.str.strip().str.lower()
     
-    # 2. BULLETPROOF FILTERING: Clean spaces, make lowercase, convert to string safely
-    if 'Payment Type' in backend_df.columns:
-        mask = backend_df['Payment Type'].astype(str).str.strip().str.lower() == 'payment'
-        df_filtered = backend_df[mask].copy()
-    else:
-        df_filtered = backend_df.copy()
-        
-    # 3. Force 'Amount' to be a clean number (fixes text-number issues)
-    if 'Amount' in df_filtered.columns:
-        df_filtered['Amount'] = pd.to_numeric(df_filtered['Amount'], errors='coerce').fillna(0)
+    # 2. BULLETPROOF FILTERING
+    if 'payment type' in df_filtered.columns:
+        mask = df_filtered['payment type'].astype(str).str.strip().str.lower() == 'payment'
+        df_filtered = df_filtered[mask].copy()
 
-    # 4. Map Cities
-    if 'Locker Bank' in df_filtered.columns:
-        df_filtered['Cleaned_Location'] = df_filtered['Locker Bank'].astype(str).apply(clean_locker_name)
-        df_filtered['City'] = df_filtered['Cleaned_Location'].apply(lambda loc: mapping_lower.get(str(loc).lower(), {}).get("City", "Unknown"))
+    # 3. FORCE AMOUNT TO NUMBERS
+    if 'amount' in df_filtered.columns:
+        df_filtered['amount'] = pd.to_numeric(df_filtered['amount'], errors='coerce').fillna(0)
 
-    # --- Time of Day Analysis ---
-    if 'Date Created' in df_filtered.columns:
-        df_filtered['Date Created'] = pd.to_datetime(df_filtered['Date Created'], errors='coerce')
+    # 4. LOCATION CLEANING
+    if 'locker bank' in df_filtered.columns:
+        df_filtered['cleaned_location'] = df_filtered['locker bank'].astype(str).apply(clean_locker_name)
+        df_filtered['city'] = df_filtered['cleaned_location'].apply(lambda loc: mapping_lower.get(str(loc).lower(), {}).get("City", "Unknown"))
+
+    # Time of Day Analysis
+    if 'date created' in df_filtered.columns:
+        df_filtered['date created'] = pd.to_datetime(df_filtered['date created'], errors='coerce')
         def get_tod(hour):
             if pd.isna(hour): return 'Unknown'
             if 6 <= hour < 12: return 'Morning (6AM - 12PM)'
             elif 12 <= hour < 18: return 'Afternoon (12PM - 6PM)'
             else: return 'Night (6PM - 6AM)'
         
-        df_filtered['Time_of_Day'] = df_filtered['Date Created'].dt.hour.apply(get_tod)
-        time_dist = df_filtered['Time_of_Day'].value_counts(normalize=True).reset_index()
+        df_filtered['time_of_day'] = df_filtered['date created'].dt.hour.apply(get_tod)
+        time_dist = df_filtered['time_of_day'].value_counts(normalize=True).reset_index()
         time_dist.columns = ['Time of Day', 'Percentage']
         time_dist['Percentage'] = (time_dist['Percentage'] * 100).round(2).astype(str) + '%'
     else:
         time_dist = pd.DataFrame()
 
-    # --- Location Performance ---
+    # Location Performance
     def calc_entropy(series):
         counts = series.value_counts(normalize=True)
         return -(counts * np.log2(counts)).sum()
 
-    if 'Locker Bank' in df_filtered.columns and 'Amount' in df_filtered.columns:
-        loc_rev = df_filtered.groupby('Locker Bank')['Amount'].agg(
+    if 'locker bank' in df_filtered.columns and 'amount' in df_filtered.columns:
+        loc_rev = df_filtered.groupby('locker bank')['amount'].agg(
             Total_Revenue='sum',
             Total_Transactions='count',
             AOV='mean',
             Revenue_Std_Dev='std'
         ).reset_index()
         
+        loc_rev.rename(columns={'locker bank': 'Locker Bank'}, inplace=True)
         loc_rev['Total_Revenue'] = loc_rev['Total_Revenue'].round(2)
         loc_rev['AOV'] = loc_rev['AOV'].round(2)
         loc_rev['Revenue_Std_Dev'] = loc_rev['Revenue_Std_Dev'].fillna(0).round(2)
         loc_rev = loc_rev.sort_values(by='Total_Revenue', ascending=False)
         
-        if 'Locker Size' in df_filtered.columns:
-            entropy_df = df_filtered.groupby('Locker Bank')['Locker Size'].apply(calc_entropy).reset_index(name='Size Entropy')
+        if 'locker size' in df_filtered.columns:
+            entropy_df = df_filtered.groupby('locker bank')['locker size'].apply(calc_entropy).reset_index(name='Size Entropy')
+            entropy_df.rename(columns={'locker bank': 'Locker Bank'}, inplace=True)
             loc_rev = pd.merge(loc_rev, entropy_df, on='Locker Bank', how='left')
             loc_rev['Size Entropy'] = loc_rev['Size Entropy'].round(3)
             
-            bank_sizes = pd.crosstab(df_filtered['Locker Bank'], df_filtered['Locker Size'], normalize='index') * 100
+            bank_sizes = pd.crosstab(df_filtered['locker bank'], df_filtered['locker size'], normalize='index') * 100
             bank_sizes = bank_sizes.round(2).astype(str) + '%'
             bank_sizes.columns = [f"% {col}" for col in bank_sizes.columns]
-            bank_sizes = bank_sizes.reset_index()
+            bank_sizes = bank_sizes.reset_index().rename(columns={'locker bank': 'Locker Bank'})
             
             loc_rev = pd.merge(loc_rev, bank_sizes, on='Locker Bank', how='left')
     else:
         loc_rev = pd.DataFrame()
 
-    # --- City Revenue ---
-    if 'City' in df_filtered.columns and 'Amount' in df_filtered.columns:
-        city_rev = df_filtered.groupby('City')['Amount'].sum().reset_index().sort_values(by='Amount', ascending=False)
+    # City Revenue
+    if 'city' in df_filtered.columns and 'amount' in df_filtered.columns:
+        city_rev = df_filtered.groupby('city')['amount'].sum().reset_index().sort_values(by='amount', ascending=False)
+        city_rev.rename(columns={'city': 'City', 'amount': 'Amount'}, inplace=True)
     else:
         city_rev = pd.DataFrame()
 
-    # --- User Behavior & Cohort Inferences ---
+    # User Behavior & Cohort Inferences
     user_df = pd.DataFrame()
     repeat_users = pd.DataFrame()
     
-    if 'User Mobile' in df_filtered.columns and 'Date Updated' in df_filtered.columns:
-        df_users = df_filtered.dropna(subset=['Date Updated', 'User Mobile']).copy()
+    if 'user mobile' in df_filtered.columns and 'date updated' in df_filtered.columns:
+        df_users = df_filtered.dropna(subset=['date updated', 'user mobile']).copy()
         
         if not df_users.empty:
-            df_users['date_only'] = df_users['Date Updated'].dt.date
+            df_users['date updated'] = pd.to_datetime(df_users['date updated'], errors='coerce')
+            df_users['date_only'] = df_users['date updated'].dt.date
             
-            user_df = df_users.groupby('User Mobile').agg(
-                total_transactions=('Reference Id', 'count') if 'Reference Id' in df_users.columns else ('Amount', 'count'),
+            user_df = df_users.groupby('user mobile').agg(
+                total_transactions=('reference id', 'count') if 'reference id' in df_users.columns else ('amount', 'count'),
                 active_days=('date_only', 'nunique'),
-                first_usage=('Date Updated', 'min'),
-                last_usage=('Date Updated', 'max'),
-                total_amount=('Amount', 'sum')
+                first_usage=('date updated', 'min'),
+                last_usage=('date updated', 'max'),
+                total_amount=('amount', 'sum')
             ).reset_index()
+            user_df.rename(columns={'user mobile': 'User Mobile'}, inplace=True)
 
             repeat_users = user_df[
                 (user_df['total_transactions'] >= 2) & 
                 (user_df['active_days'] >= 2)
             ].copy().sort_values('total_transactions', ascending=False)
             
-            if 'Locker Size' in df_users.columns:
+            if 'locker size' in df_users.columns:
                 size_map = {'Medium': 'M', 'Large': 'L', 'Extra Large': 'XL'}
-                df_users['size_clean'] = df_users['Locker Size'].map(size_map).fillna('unknown')
+                df_users['size_clean'] = df_users['locker size'].map(size_map).fillna('unknown')
                 
-                size_counts = df_users.groupby(['User Mobile', 'size_clean']).size().unstack(fill_value=0)
+                size_counts = df_users.groupby(['user mobile', 'size_clean']).size().unstack(fill_value=0)
                 size_pct = size_counts.div(size_counts.sum(axis=1), axis=0).fillna(0) * 100
                 size_pct = size_pct.rename(columns={'M': 'pct_M', 'L': 'pct_L', 'XL': 'pct_XL'})
+                size_pct.index.name = 'User Mobile'
                 
-                user_df = user_df.merge(size_pct, left_on='User Mobile', right_index=True, how='left').fillna(0)
+                user_df = user_df.merge(size_pct, on='User Mobile', how='left').fillna(0)
                 
                 size_cols = [c for c in ['pct_M', 'pct_L', 'pct_XL'] if c in user_df.columns]
                 if size_cols:
@@ -228,7 +237,8 @@ def generate_backend_analytics(backend_df):
                     ).round(3)
 
     return loc_rev, city_rev, time_dist, user_df, repeat_users
-    # --- 4. Streamlit UI ---
+
+# --- 4. Streamlit UI ---
 st.set_page_config(page_title="Locker Analytics Processor", layout="wide")
 
 st.title("🧳 Locker Data Processor & Analytics")
@@ -246,16 +256,14 @@ with tab1:
     if settlement_file is not None:
         try:
             df = pd.read_csv(settlement_file) if settlement_file.name.endswith('.csv') else pd.read_excel(settlement_file)
-            backend_df = None
-            loc_rev, city_rev, time_dist, user_df, repeat_users = None, None, None, pd.DataFrame(), pd.DataFrame()
+            loc_rev, city_rev, time_dist, user_df, repeat_users = pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
             if backend_file is not None:
                 backend_df = pd.read_csv(backend_file) if backend_file.name.endswith('.csv') else pd.read_excel(backend_file)
-                # Catching all 5 variables safely!
                 loc_rev, city_rev, time_dist, user_df, repeat_users = generate_backend_analytics(backend_df)
                 st.success("Backend data loaded. Missing locations cross-referenced and Analytics generated!")
             
-            processed_df = process_dataframe(df, backend_df)
+            processed_df = process_dataframe(df, backend_df if backend_file else None)
             
             st.write("### Processed Data Preview")
             st.dataframe(processed_df[['entity_id', 'payment_notes', 'City', 'State']].head())
@@ -263,12 +271,10 @@ with tab1:
             output = io.BytesIO()
             with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
                 processed_df.to_excel(writer, index=False, sheet_name='Processed_Settlements')
-                
                 if backend_file is not None:
-                    loc_rev.to_excel(writer, index=False, sheet_name='Bank_Performance')
-                    city_rev.to_excel(writer, index=False, sheet_name='Revenue_By_City')
-                    time_dist.to_excel(writer, index=False, sheet_name='Time_of_Day_Stats')
-                    
+                    if not loc_rev.empty: loc_rev.to_excel(writer, index=False, sheet_name='Bank_Performance')
+                    if not city_rev.empty: city_rev.to_excel(writer, index=False, sheet_name='Revenue_By_City')
+                    if not time_dist.empty: time_dist.to_excel(writer, index=False, sheet_name='Time_of_Day_Stats')
                     if not user_df.empty:
                         user_df.to_excel(writer, index=False, sheet_name='All_User_Analytics')
                         repeat_users.to_excel(writer, index=False, sheet_name='Top_Repeat_Users')
@@ -287,42 +293,50 @@ with tab2:
         st.info("👈 Please upload the Backend Data file in the 'Data Processing' tab to view analytics.")
     else:
         st.subheader("📊 Backend Operations Insights")
-        st.write("*Note: Filtering for rows where `Payment Type` = 'Payment'*")
         
-        c1, c2 = st.columns(2)
-        with c1:
-            st.write("### 🕒 Bookings by Time of Day")
-            st.dataframe(time_dist, use_container_width=True)
-            
-        with c2:
-            st.write("### 🏙️ Revenue by City")
-            st.dataframe(city_rev, use_container_width=True)
-            
-        st.markdown("---")
-        st.write("### 📍 Location Performance: Revenue, Entropy & Size Distribution")
-        st.caption("This table breaks down total revenue, AOV, Standard Deviation, and exact percentage of M, L, XL locker bookings for **each individual location**.")
-        st.dataframe(loc_rev, use_container_width=True)
-        
-        st.markdown("---")
-        st.subheader("👥 User Behavior & Cohort Inferences")
-        
-        if not user_df.empty:
-            total_users = len(user_df)
-            total_repeat = len(repeat_users)
-            repeat_rate = (total_repeat / total_users) * 100 if total_users > 0 else 0
-            
-            kpi1, kpi2, kpi3 = st.columns(3)
-            kpi1.metric("Total Unique Users", f"{total_users}")
-            kpi2.metric("Highly Loyal Users (≥2 bookings)", f"{total_repeat}")
-            kpi3.metric("Customer Retention Rate", f"{repeat_rate:.1f}%")
-            
-            st.write("### 🏆 Top Repeat Customers Profile")
-            st.caption("These are your most valuable users. High 'Size Entropy' indicates they use multiple locker sizes depending on their needs.")
-            
-            display_cols = ['User Mobile', 'total_transactions', 'active_days', 'total_amount']
-            if 'dominant_size' in user_df.columns:
-                display_cols.extend(['dominant_size', 'size_entropy'])
-                
-            st.dataframe(repeat_users[display_cols].head(15), use_container_width=True)
+        # 🚨 DEBUGGER LOGIC: Let the user know exactly WHY it's empty if it fails
+        if loc_rev.empty and city_rev.empty:
+            st.error("⚠️ No usable data found. All rows were filtered out.")
+            st.write("**Debugging Info:**")
+            st.write("1. Does your file have 'Amount', 'Locker Bank', and 'Payment Type' columns?")
+            st.write("Columns found:", list(backend_df.columns))
+            if 'Payment Type' in backend_df.columns:
+                st.write("2. We only keep rows where 'Payment Type' equals 'Payment'. Unique values found in your file:", backend_df['Payment Type'].unique())
         else:
-            st.warning("Not enough user data to generate cohort inferences.")
+            st.write("*Note: Filtering for rows where `Payment Type` = 'Payment'*")
+            
+            c1, c2 = st.columns(2)
+            with c1:
+                st.write("### 🕒 Bookings by Time of Day")
+                st.dataframe(time_dist, use_container_width=True)
+                
+            with c2:
+                st.write("### 🏙️ Revenue by City")
+                st.dataframe(city_rev, use_container_width=True)
+                
+            st.markdown("---")
+            st.write("### 📍 Location Performance: Revenue, Entropy & Size Distribution")
+            st.caption("This table breaks down total revenue, AOV, Standard Deviation, and exact percentage of M, L, XL locker bookings for **each individual location**.")
+            st.dataframe(loc_rev, use_container_width=True)
+            
+            st.markdown("---")
+            st.subheader("👥 User Behavior & Cohort Inferences")
+            
+            if not user_df.empty:
+                total_users = len(user_df)
+                total_repeat = len(repeat_users)
+                repeat_rate = (total_repeat / total_users) * 100 if total_users > 0 else 0
+                
+                kpi1, kpi2, kpi3 = st.columns(3)
+                kpi1.metric("Total Unique Users", f"{total_users}")
+                kpi2.metric("Highly Loyal Users (≥2 bookings)", f"{total_repeat}")
+                kpi3.metric("Customer Retention Rate", f"{repeat_rate:.1f}%")
+                
+                st.write("### 🏆 Top Repeat Customers Profile")
+                st.caption("These are your most valuable users. High 'Size Entropy' indicates they use multiple locker sizes depending on their needs.")
+                
+                display_cols = ['User Mobile', 'total_transactions', 'active_days', 'total_amount']
+                if 'dominant_size' in user_df.columns:
+                    display_cols.extend(['dominant_size', 'size_entropy'])
+                    
+                st.dataframe(repeat_users[display_cols].head(15), use_container_width=True)
