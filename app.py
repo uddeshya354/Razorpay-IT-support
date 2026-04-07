@@ -3,6 +3,7 @@ import pandas as pd
 import json
 import re
 import io
+import numpy as np
 
 # --- 1. Define the Mapping Dictionary ---
 location_mapping = {
@@ -58,19 +59,15 @@ def extract_locker_bank(notes):
         locker_name = data.get("Locker Bank Name", data.get("lockerBankName", ""))
         if locker_name and locker_name.strip().lower() != "luggage":
             return locker_name
-            
         locker_location = data.get("lockerBankLocation", "")
         if locker_location and locker_location.strip().lower() not in ["", "luggage"]:
             return locker_location
-            
         tenant = data.get("tenant", "")
         if tenant:
             if "http" in tenant:
                 match = re.search(r'://([^.]+)\.', tenant)
                 if match: return match.group(1)
-            else:
-                return tenant
-                
+            else: return tenant
         tenant_url = data.get("Tenant Name", data.get("tenant_host", ""))
         if tenant_url:
             match = re.search(r'://([^.]+)\.', tenant_url)
@@ -93,7 +90,6 @@ def process_dataframe(df, backend_df=None):
 
     df['Raw_Locker_Bank'] = df['payment_notes'].apply(extract_locker_bank)
     df['Cleaned_Location'] = df['Raw_Locker_Bank'].apply(clean_locker_name)
-    
     df['City'] = df['Cleaned_Location'].apply(lambda loc: mapping_lower.get(str(loc).lower(), {}).get("City", "Unknown"))
     df['State'] = df['Cleaned_Location'].apply(lambda loc: mapping_lower.get(str(loc).lower(), {}).get("State", "Unknown"))
     
@@ -115,25 +111,54 @@ def process_dataframe(df, backend_df=None):
     return df
 
 def generate_backend_analytics(backend_df):
-    """Processes backend data for analytics (Revenue & Size Distribution)"""
-    # 1. Filter only 'Payment' type
+    """Processes backend data for advanced analytics"""
     if 'Payment Type' in backend_df.columns:
         df_filtered = backend_df[backend_df['Payment Type'].str.lower() == 'payment'].copy()
     else:
         df_filtered = backend_df.copy()
 
-    # 2. Map Cities for the Backend Data
     if 'Locker Bank' in df_filtered.columns:
         df_filtered['Cleaned_Location'] = df_filtered['Locker Bank'].apply(clean_locker_name)
         df_filtered['City'] = df_filtered['Cleaned_Location'].apply(lambda loc: mapping_lower.get(str(loc).lower(), {}).get("City", "Unknown"))
-    
-    # 3. Aggregations
-    # Location Revenue
-    loc_rev = df_filtered.groupby('Locker Bank')['Amount'].sum().reset_index().sort_values(by='Amount', ascending=False)
-    # City Revenue
-    city_rev = df_filtered.groupby('City')['Amount'].sum().reset_index().sort_values(by='Amount', ascending=False)
-    
-    # Size Percentage
+
+    # 1. Time of Day Analysis
+    if 'Date Created' in df_filtered.columns:
+        df_filtered['Date Created'] = pd.to_datetime(df_filtered['Date Created'], errors='coerce')
+        def get_tod(hour):
+            if pd.isna(hour): return 'Unknown'
+            if 6 <= hour < 12: return 'Morning (6AM - 12PM)'
+            elif 12 <= hour < 18: return 'Afternoon (12PM - 6PM)'
+            else: return 'Night (6PM - 6AM)'
+        
+        df_filtered['Time_of_Day'] = df_filtered['Date Created'].dt.hour.apply(get_tod)
+        time_dist = df_filtered['Time_of_Day'].value_counts(normalize=True).reset_index()
+        time_dist.columns = ['Time of Day', 'Percentage']
+        time_dist['Percentage'] = (time_dist['Percentage'] * 100).round(2).astype(str) + '%'
+    else:
+        time_dist = pd.DataFrame()
+
+    # 2. Size Entropy & Location Revenue
+    def calc_entropy(series):
+        counts = series.value_counts(normalize=True)
+        return -(counts * np.log2(counts)).sum()
+
+    if 'Locker Bank' in df_filtered.columns and 'Amount' in df_filtered.columns:
+        loc_rev = df_filtered.groupby('Locker Bank')['Amount'].sum().reset_index().sort_values(by='Amount', ascending=False)
+        
+        if 'Locker Size' in df_filtered.columns:
+            entropy_df = df_filtered.groupby('Locker Bank')['Locker Size'].apply(calc_entropy).reset_index(name='Size Entropy')
+            loc_rev = pd.merge(loc_rev, entropy_df, on='Locker Bank', how='left')
+            loc_rev['Size Entropy'] = loc_rev['Size Entropy'].round(3) # Round to 3 decimals
+    else:
+        loc_rev = pd.DataFrame()
+
+    # 3. City Revenue
+    if 'City' in df_filtered.columns and 'Amount' in df_filtered.columns:
+        city_rev = df_filtered.groupby('City')['Amount'].sum().reset_index().sort_values(by='Amount', ascending=False)
+    else:
+        city_rev = pd.DataFrame()
+
+    # 4. Overall Locker Size Distribution
     if 'Locker Size' in df_filtered.columns:
         size_dist = df_filtered['Locker Size'].value_counts(normalize=True).reset_index()
         size_dist.columns = ['Locker Size', 'Percentage']
@@ -141,15 +166,14 @@ def generate_backend_analytics(backend_df):
     else:
         size_dist = pd.DataFrame()
 
-    return loc_rev, city_rev, size_dist
+    return loc_rev, city_rev, size_dist, time_dist
 
 # --- 4. Streamlit UI ---
-st.set_page_config(page_title="Locker Settlement Processor", layout="wide")
+st.set_page_config(page_title="Locker Analytics Processor", layout="wide")
 
-st.title("🧳 Locker Settlement Processor & Analytics")
+st.title("🧳 Locker Data Processor & Analytics")
 
-# Tabbed Interface
-tab1, tab2 = st.tabs(["⚙️ Data Processing", "📊 Backend Analytics Dashboard"])
+tab1, tab2 = st.tabs(["⚙️ Data Processing", "📊 Advanced Analytics Dashboard"])
 
 with tab1:
     st.write("Upload files to map missing locations and generate reports.")
@@ -163,11 +187,11 @@ with tab1:
         try:
             df = pd.read_csv(settlement_file) if settlement_file.name.endswith('.csv') else pd.read_excel(settlement_file)
             backend_df = None
-            loc_rev, city_rev, size_dist = None, None, None
+            loc_rev, city_rev, size_dist, time_dist = None, None, None, None
 
             if backend_file is not None:
                 backend_df = pd.read_csv(backend_file) if backend_file.name.endswith('.csv') else pd.read_excel(backend_file)
-                loc_rev, city_rev, size_dist = generate_backend_analytics(backend_df)
+                loc_rev, city_rev, size_dist, time_dist = generate_backend_analytics(backend_df)
                 st.success("Backend data loaded. Missing locations cross-referenced and Analytics generated!")
             
             processed_df = process_dataframe(df, backend_df)
@@ -175,22 +199,20 @@ with tab1:
             st.write("### Processed Data Preview")
             st.dataframe(processed_df[['entity_id', 'payment_notes', 'City', 'State']].head())
             
-            # Export to Excel with Multiple Sheets
             output = io.BytesIO()
             with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-                # Sheet 1: Main Processed Data
                 processed_df.to_excel(writer, index=False, sheet_name='Processed_Settlements')
                 
-                # Additional Sheets if Backend Data was provided
                 if backend_file is not None:
-                    loc_rev.to_excel(writer, index=False, sheet_name='Revenue_By_Location')
+                    loc_rev.to_excel(writer, index=False, sheet_name='Revenue_and_Entropy')
                     city_rev.to_excel(writer, index=False, sheet_name='Revenue_By_City')
                     size_dist.to_excel(writer, index=False, sheet_name='Locker_Size_Stats')
+                    time_dist.to_excel(writer, index=False, sheet_name='Time_of_Day_Stats')
             
             st.download_button(
-                label="📥 Download Multi-Sheet Excel Report",
+                label="📥 Download Advanced Multi-Sheet Report",
                 data=output.getvalue(),
-                file_name=f"Processed_Report.xlsx",
+                file_name=f"Advanced_Report.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
         except Exception as e:
@@ -200,18 +222,23 @@ with tab2:
     if backend_file is None:
         st.info("👈 Please upload the Backend Data file in the 'Data Processing' tab to view analytics.")
     else:
-        st.subheader("Backend Revenue & Usage Insights")
+        st.subheader("Backend Operations Insights")
         st.write("*Note: Filtering for rows where `Payment Type` = 'Payment'*")
         
-        c1, c2 = st.columns(2)
+        c1, c2, c3 = st.columns(3)
         with c1:
-            st.write("### Revenue by City")
-            st.dataframe(city_rev, use_container_width=True)
-            st.bar_chart(city_rev.set_index('City')['Amount'])
+            st.write("### 🕒 Bookings by Time of Day")
+            st.dataframe(time_dist, use_container_width=True)
             
         with c2:
-            st.write("### Locker Size Distribution (%)")
+            st.write("### 📏 Locker Size Distribution (%)")
             st.dataframe(size_dist, use_container_width=True)
+
+        with c3:
+            st.write("### 🏙️ Revenue by City")
+            st.dataframe(city_rev, use_container_width=True)
             
-        st.write("### Revenue by Specific Location (Locker Bank)")
-        st.dataframe(loc_rev)
+        st.markdown("---")
+        st.write("### 📍 Location Performance & Size Entropy")
+        st.caption("Size Entropy measures the diversity of locker sizes booked. Higher entropy means highly mixed demand (M, L, XL), while lower entropy means predictable, single-size demand.")
+        st.dataframe(loc_rev, use_container_width=True)
