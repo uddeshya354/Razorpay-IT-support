@@ -137,18 +137,33 @@ def generate_backend_analytics(backend_df):
     else:
         time_dist = pd.DataFrame()
 
-    # 2. Size Entropy & Location Revenue
+    # 2. Location Revenue, Size Entropy, and Per-Bank Size Distribution
     def calc_entropy(series):
         counts = series.value_counts(normalize=True)
         return -(counts * np.log2(counts)).sum()
 
     if 'Locker Bank' in df_filtered.columns and 'Amount' in df_filtered.columns:
+        # Base Revenue
         loc_rev = df_filtered.groupby('Locker Bank')['Amount'].sum().reset_index().sort_values(by='Amount', ascending=False)
         
         if 'Locker Size' in df_filtered.columns:
+            # Entropy
             entropy_df = df_filtered.groupby('Locker Bank')['Locker Size'].apply(calc_entropy).reset_index(name='Size Entropy')
             loc_rev = pd.merge(loc_rev, entropy_df, on='Locker Bank', how='left')
-            loc_rev['Size Entropy'] = loc_rev['Size Entropy'].round(3) # Round to 3 decimals
+            loc_rev['Size Entropy'] = loc_rev['Size Entropy'].round(3)
+            
+            # 🚀 NEW: Size Distribution PER BANK
+            # pd.crosstab with normalize='index' creates row-wise percentages automatically!
+            bank_sizes = pd.crosstab(df_filtered['Locker Bank'], df_filtered['Locker Size'], normalize='index') * 100
+            
+            # Format nicely (e.g. 45.5%) and add "%" to the column names so it's clear
+            bank_sizes = bank_sizes.round(2).astype(str) + '%'
+            bank_sizes.columns = [f"% {col}" for col in bank_sizes.columns]
+            bank_sizes = bank_sizes.reset_index()
+            
+            # Merge the percentages into the Location Revenue table
+            loc_rev = pd.merge(loc_rev, bank_sizes, on='Locker Bank', how='left')
+            
     else:
         loc_rev = pd.DataFrame()
 
@@ -158,15 +173,7 @@ def generate_backend_analytics(backend_df):
     else:
         city_rev = pd.DataFrame()
 
-    # 4. Overall Locker Size Distribution
-    if 'Locker Size' in df_filtered.columns:
-        size_dist = df_filtered['Locker Size'].value_counts(normalize=True).reset_index()
-        size_dist.columns = ['Locker Size', 'Percentage']
-        size_dist['Percentage'] = (size_dist['Percentage'] * 100).round(2).astype(str) + '%'
-    else:
-        size_dist = pd.DataFrame()
-
-    return loc_rev, city_rev, size_dist, time_dist
+    return loc_rev, city_rev, time_dist
 
 # --- 4. Streamlit UI ---
 st.set_page_config(page_title="Locker Analytics Processor", layout="wide")
@@ -187,11 +194,11 @@ with tab1:
         try:
             df = pd.read_csv(settlement_file) if settlement_file.name.endswith('.csv') else pd.read_excel(settlement_file)
             backend_df = None
-            loc_rev, city_rev, size_dist, time_dist = None, None, None, None
+            loc_rev, city_rev, time_dist = None, None, None
 
             if backend_file is not None:
                 backend_df = pd.read_csv(backend_file) if backend_file.name.endswith('.csv') else pd.read_excel(backend_file)
-                loc_rev, city_rev, size_dist, time_dist = generate_backend_analytics(backend_df)
+                loc_rev, city_rev, time_dist = generate_backend_analytics(backend_df)
                 st.success("Backend data loaded. Missing locations cross-referenced and Analytics generated!")
             
             processed_df = process_dataframe(df, backend_df)
@@ -204,9 +211,8 @@ with tab1:
                 processed_df.to_excel(writer, index=False, sheet_name='Processed_Settlements')
                 
                 if backend_file is not None:
-                    loc_rev.to_excel(writer, index=False, sheet_name='Revenue_and_Entropy')
+                    loc_rev.to_excel(writer, index=False, sheet_name='Bank_Performance')
                     city_rev.to_excel(writer, index=False, sheet_name='Revenue_By_City')
-                    size_dist.to_excel(writer, index=False, sheet_name='Locker_Size_Stats')
                     time_dist.to_excel(writer, index=False, sheet_name='Time_of_Day_Stats')
             
             st.download_button(
@@ -225,20 +231,16 @@ with tab2:
         st.subheader("Backend Operations Insights")
         st.write("*Note: Filtering for rows where `Payment Type` = 'Payment'*")
         
-        c1, c2, c3 = st.columns(3)
+        c1, c2 = st.columns(2)
         with c1:
             st.write("### 🕒 Bookings by Time of Day")
             st.dataframe(time_dist, use_container_width=True)
             
         with c2:
-            st.write("### 📏 Locker Size Distribution (%)")
-            st.dataframe(size_dist, use_container_width=True)
-
-        with c3:
             st.write("### 🏙️ Revenue by City")
             st.dataframe(city_rev, use_container_width=True)
             
         st.markdown("---")
-        st.write("### 📍 Location Performance & Size Entropy")
-        st.caption("Size Entropy measures the diversity of locker sizes booked. Higher entropy means highly mixed demand (M, L, XL), while lower entropy means predictable, single-size demand.")
+        st.write("### 📍 Location Performance: Revenue, Entropy & Size Distribution")
+        st.caption("This table breaks down total revenue alongside the exact percentage of M, L, and XL locker bookings for **each individual location**.")
         st.dataframe(loc_rev, use_container_width=True)
