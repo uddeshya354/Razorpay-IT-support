@@ -113,16 +113,27 @@ def process_dataframe(df, backend_df=None):
 
 def generate_backend_analytics(backend_df):
     """Processes backend data for advanced analytics and User RFM inferences"""
+    
+    # 1. Strip hidden spaces from column names just in case
+    backend_df.columns = backend_df.columns.str.strip()
+    
+    # 2. BULLETPROOF FILTERING: Clean spaces, make lowercase, convert to string safely
     if 'Payment Type' in backend_df.columns:
-        df_filtered = backend_df[backend_df['Payment Type'].str.lower() == 'payment'].copy()
+        mask = backend_df['Payment Type'].astype(str).str.strip().str.lower() == 'payment'
+        df_filtered = backend_df[mask].copy()
     else:
         df_filtered = backend_df.copy()
+        
+    # 3. Force 'Amount' to be a clean number (fixes text-number issues)
+    if 'Amount' in df_filtered.columns:
+        df_filtered['Amount'] = pd.to_numeric(df_filtered['Amount'], errors='coerce').fillna(0)
 
+    # 4. Map Cities
     if 'Locker Bank' in df_filtered.columns:
-        df_filtered['Cleaned_Location'] = df_filtered['Locker Bank'].apply(clean_locker_name)
+        df_filtered['Cleaned_Location'] = df_filtered['Locker Bank'].astype(str).apply(clean_locker_name)
         df_filtered['City'] = df_filtered['Cleaned_Location'].apply(lambda loc: mapping_lower.get(str(loc).lower(), {}).get("City", "Unknown"))
 
-    # 1. Time of Day Analysis
+    # --- Time of Day Analysis ---
     if 'Date Created' in df_filtered.columns:
         df_filtered['Date Created'] = pd.to_datetime(df_filtered['Date Created'], errors='coerce')
         def get_tod(hour):
@@ -138,7 +149,7 @@ def generate_backend_analytics(backend_df):
     else:
         time_dist = pd.DataFrame()
 
-    # 2. Location Performance (Revenue, Transactions, AOV, Std Dev, Entropy, Sizes)
+    # --- Location Performance ---
     def calc_entropy(series):
         counts = series.value_counts(normalize=True)
         return -(counts * np.log2(counts)).sum()
@@ -170,13 +181,13 @@ def generate_backend_analytics(backend_df):
     else:
         loc_rev = pd.DataFrame()
 
-    # 3. City Revenue
+    # --- City Revenue ---
     if 'City' in df_filtered.columns and 'Amount' in df_filtered.columns:
         city_rev = df_filtered.groupby('City')['Amount'].sum().reset_index().sort_values(by='Amount', ascending=False)
     else:
         city_rev = pd.DataFrame()
 
-    # 4. User Behavior & Cohort Inferences (RFM)
+    # --- User Behavior & Cohort Inferences ---
     user_df = pd.DataFrame()
     repeat_users = pd.DataFrame()
     
@@ -185,7 +196,6 @@ def generate_backend_analytics(backend_df):
         
         if not df_users.empty:
             df_users['date_only'] = df_users['Date Updated'].dt.date
-            df_users['hour'] = df_users['Date Updated'].dt.hour
             
             user_df = df_users.groupby('User Mobile').agg(
                 total_transactions=('Reference Id', 'count') if 'Reference Id' in df_users.columns else ('Amount', 'count'),
@@ -218,8 +228,7 @@ def generate_backend_analytics(backend_df):
                     ).round(3)
 
     return loc_rev, city_rev, time_dist, user_df, repeat_users
-
-# --- 4. Streamlit UI ---
+    # --- 4. Streamlit UI ---
 st.set_page_config(page_title="Locker Analytics Processor", layout="wide")
 
 st.title("🧳 Locker Data Processor & Analytics")
