@@ -129,10 +129,10 @@ def generate_backend_analytics(raw_backend_df):
     # if 'payment type' in df_filtered.columns:
     #     mask = df_filtered['payment type'].astype(str).str.strip().str.lower() == 'payment'
     #     df_filtered = df_filtered[mask].copy()
-    if 'Status' in df_filtered.columns:
-        mask_initiated = df_filtered['Status'].astype(str).str.strip().str.lower() == 'Initiated'
+    if 'status' in df_filtered.columns:
+        mask_initiated = df_filtered['status'].astype(str).str.strip().str.lower() == 'initiated'
         df_filtered_initiated = df_filtered[mask_initiated].copy()
-        mask_completed = df_filtered['Status'].astype(str).str.strip().str.lower() == 'Completed'
+        mask_completed = df_filtered['status'].astype(str).str.strip().str.lower() == 'completed'
         df_filtered_completed = df_filtered[mask_completed].copy()
 
     if 'amount' in df_filtered.columns:
