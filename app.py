@@ -1122,9 +1122,6 @@ with st.sidebar:
 st.title("🧳 Locker Data Processor & Analytics")
 
 tab1, tab2, tab3 = st.tabs(["⚙️ Data Processing", "📊 Advanced Analytics Dashboard", "🛠️ Hardware Optimizer"])
-st.title("🧳 Locker Data Processor & Analytics")
-
-tab1, tab2, tab3 = st.tabs(["⚙️ Data Processing", "📊 Advanced Analytics Dashboard", "🛠️ Hardware Optimizer"])
 
 loc_rev = pd.DataFrame()
 city_rev = pd.DataFrame()
