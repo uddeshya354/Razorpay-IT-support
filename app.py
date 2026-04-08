@@ -186,7 +186,7 @@ def generate_backend_analytics(raw_backend_df):
             Total_Revenue=('amount', 'sum'),
             Initiated_Revenue = ('Initiated amount', 'sum'),
             Total_Transactions=('amount', 'count'),
-            Total_Initiated_Transactions = ('Initiated amount', 'count')
+            Total_Initiated_Transactions = ('Initiated amount', 'count'),
             AOV=('amount', 'mean'),
             Pct_Weekend_Holiday=('is_weekend_or_holiday', 'mean')
         ).reset_index()
