@@ -756,14 +756,15 @@ def generate_backend_analytics(raw_backend_df):
     # --- 3. BULLETPROOF STATUS MASKING (Using .str.contains) ---
     if 'status' in df_filtered.columns:
         status_clean = df_filtered['status'].astype(str).str.lower()
-        
+    if 'payment type' in df_filtered.columns:
+        payment_clean = df_filtered['payment type'].astype(str).str.lower()
         # .contains() is much safer than ==. It catches "Initiated", " Initiated ", "Payment Initiated", etc.
         is_completed = status_clean.str.contains('complet', na=False)
         is_initiated = status_clean.str.contains('initiat', na=False)
-        
+        is_overdue = payment_clean.str.contains('overdue', na=False)
         df_filtered['Completed_Amount'] = np.where(is_completed, df_filtered['amount'], 0)
         df_filtered['Initiated_Amount'] = np.where(is_initiated, df_filtered['amount'], 0)
-        
+        df_filtered['Overdue_Amount'] = np.where(is_overdue, df_filtered['payment type'], 0)
         df_filtered['Is_Completed'] = np.where(is_completed, 1, 0)
         df_filtered['Is_Initiated'] = np.where(is_initiated, 1, 0)
     else:
@@ -819,6 +820,7 @@ def generate_backend_analytics(raw_backend_df):
     if 'locker bank' in df_filtered.columns:
         loc_rev = df_filtered.groupby('locker bank').agg(
             Total_Revenue=('Completed_Amount', 'sum'),
+            Overdue_Revenue=('Overdue_Amount', 'sum'), 
             Initiated_Revenue=('Initiated_Amount', 'sum'),
             Total_Transactions=('Is_Completed', 'sum'),
             Total_Initiated_Transactions=('Is_Initiated', 'sum'),
