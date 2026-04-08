@@ -764,7 +764,7 @@ def generate_backend_analytics(raw_backend_df):
         is_overdue = payment_clean.str.contains('overdue', na=False)
         df_filtered['Completed_Amount'] = np.where(is_completed, df_filtered['amount'], 0)
         df_filtered['Initiated_Amount'] = np.where(is_initiated, df_filtered['amount'], 0)
-        df_filtered['Overdue_Amount'] = np.where(is_overdue, df_filtered['payment type'])
+        df_filtered['Overdue_Amount'] = np.where(is_overdue, df_filtered['amount'], 0)
         df_filtered['Is_Completed'] = np.where(is_completed, 1, 0)
         df_filtered['Is_Initiated'] = np.where(is_initiated, 1, 0)
     else:
