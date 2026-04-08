@@ -561,58 +561,113 @@ import holidays
 # import pulp
 
 # --- 1. Define the Mapping Dictionaries ---
-location_mapping = {
-    "THVM": {"City": "Thivim", "State": "Goa"},
-    "katpadi": {"City": "Katpadi", "State": "Tamil Nadu"},
-    "CHZ": {"City": "Charlapalli", "State": "Telangana"},
-    "PUNE": {"City": "Pune", "State": "Maharashtra"},
-    "AJMER": {"City": "Ajmer", "State": "Rajasthan"},
-    "BSP": {"City": "Bilaspur", "State": "Chhattisgarh"},
-    "Visvesvaraya Museum": {"City": "Bengaluru", "State": "Karnataka"},
-    "Varanasi": {"City": "Varanasi", "State": "Uttar Pradesh"},
-    "Nagpur": {"City": "Nagpur", "State": "Maharashtra"},
-    "KRP": {"City": "Krishna Raj Puram", "State": "Karnataka"},
-    "KP": {"City": "Pune", "State": "Maharashtra"},
-    "UD": {"City": "Udupi", "State": "Karnataka"},
-    "Ludhiana": {"City": "Ludhiana", "State": "Punjab"},
-    "Amritsar": {"City": "Amritsar", "State": "Punjab"},
-    "Nagapattinam": {"City": "Nagapattinam", "State": "Tamil Nadu"},
-    "Hubballi Bus Stand": {"City": "Hubballi", "State": "Karnataka"},
-    "Villupuram": {"City": "Villupuram", "State": "Tamil Nadu"},
-    "BRC": {"City": "Vadodara", "State": "Gujarat"},
-    "RN": {"City": "Ratnagiri", "State": "Maharashtra"},
-    "Tiruvannamalai": {"City": "Tiruvannamalai", "State": "Tamil Nadu"},
-    "GHM": {"City": "Ghoom", "State": "West Bengal"},
-    "KSR": {"City": "Bengaluru", "State": "Karnataka"},
-    "Melmaruvathur": {"City": "Melmaruvathur", "State": "Tamil Nadu"},
-    "Shirdi": {"City": "Shirdi", "State": "Maharashtra"},
-    "MMR": {"City": "Manmad", "State": "Maharashtra"},
-    "JAM": {"City": "Jamnagar", "State": "Gujarat"},
-    "Jasidih": {"City": "Jasidih", "State": "Jharkhand"},
-    "Manglore Central K": {"City": "Mangaluru", "State": "Karnataka"},
-    "Tirur": {"City": "Tirur", "State": "Kerala"},
-    "Kannur": {"City": "Kannur", "State": "Kerala"},
-    "CSMT": {"City": "Mumbai", "State": "Maharashtra"},
-    "Jalandhar": {"City": "Jalandhar", "State": "Punjab"},
-    "SEG": {"City": "Shegaon", "State": "Maharashtra"},
-    "Tiruvannamalai Arunachaleswarar Temple": {"City": "Tiruvannamalai", "State": "Tamil Nadu"},
-    "Ayodhya": {"City": "Ayodhya", "State": "Uttar Pradesh"},
-    "Lucknow": {"City": "Lucknow", "State": "Uttar Pradesh"},
-    "SANTRAGACHI": {"City": "Howrah", "State": "West Bengal"},
-    "Shalimar": {"City": "Howrah", "State": "West Bengal"},
-    "Statue of Unity": {"City": "Kevadia", "State": "Gujarat"},
-    "Ahmedabad": {"City": "Ahmedabad", "State": "Gujarat"},
-    "Kozhikode": {"City": "Kozhikode", "State": "Kerala"}
-}
-mapping_lower = {k.lower(): v for k, v in location_mapping.items()}
+# location_mapping = {
+#     "THVM": {"City": "Thivim", "State": "Goa"},
+#     "katpadi": {"City": "Katpadi", "State": "Tamil Nadu"},
+#     "CHZ": {"City": "Charlapalli", "State": "Telangana"},
+#     "PUNE": {"City": "Pune", "State": "Maharashtra"},
+#     "AJMER": {"City": "Ajmer", "State": "Rajasthan"},
+#     "BSP": {"City": "Bilaspur", "State": "Chhattisgarh"},
+#     "Visvesvaraya Museum": {"City": "Bengaluru", "State": "Karnataka"},
+#     "Varanasi": {"City": "Varanasi", "State": "Uttar Pradesh"},
+#     "Nagpur": {"City": "Nagpur", "State": "Maharashtra"},
+#     "KRP": {"City": "Krishna Raj Puram", "State": "Karnataka"},
+#     "KP": {"City": "Pune", "State": "Maharashtra"},
+#     "UD": {"City": "Udupi", "State": "Karnataka"},
+#     "Ludhiana": {"City": "Ludhiana", "State": "Punjab"},
+#     "Amritsar": {"City": "Amritsar", "State": "Punjab"},
+#     "Nagapattinam": {"City": "Nagapattinam", "State": "Tamil Nadu"},
+#     "Hubballi Bus Stand": {"City": "Hubballi", "State": "Karnataka"},
+#     "Villupuram": {"City": "Villupuram", "State": "Tamil Nadu"},
+#     "BRC": {"City": "Vadodara", "State": "Gujarat"},
+#     "RN": {"City": "Ratnagiri", "State": "Maharashtra"},
+#     "Tiruvannamalai": {"City": "Tiruvannamalai", "State": "Tamil Nadu"},
+#     "GHM": {"City": "Ghoom", "State": "West Bengal"},
+#     "KSR": {"City": "Bengaluru", "State": "Karnataka"},
+#     "Melmaruvathur": {"City": "Melmaruvathur", "State": "Tamil Nadu"},
+#     "Shirdi": {"City": "Shirdi", "State": "Maharashtra"},
+#     "MMR": {"City": "Manmad", "State": "Maharashtra"},
+#     "JAM": {"City": "Jamnagar", "State": "Gujarat"},
+#     "Jasidih": {"City": "Jasidih", "State": "Jharkhand"},
+#     "Manglore Central K": {"City": "Mangaluru", "State": "Karnataka"},
+#     "Tirur": {"City": "Tirur", "State": "Kerala"},
+#     "Kannur": {"City": "Kannur", "State": "Kerala"},
+#     "CSMT": {"City": "Mumbai", "State": "Maharashtra"},
+#     "Jalandhar": {"City": "Jalandhar", "State": "Punjab"},
+#     "SEG": {"City": "Shegaon", "State": "Maharashtra"},
+#     "Tiruvannamalai Arunachaleswarar Temple": {"City": "Tiruvannamalai", "State": "Tamil Nadu"},
+#     "Ayodhya": {"City": "Ayodhya", "State": "Uttar Pradesh"},
+#     "Lucknow": {"City": "Lucknow", "State": "Uttar Pradesh"},
+#     "SANTRAGACHI": {"City": "Howrah", "State": "West Bengal"},
+#     "Shalimar": {"City": "Howrah", "State": "West Bengal"},
+#     "Statue of Unity": {"City": "Kevadia", "State": "Gujarat"},
+#     "Ahmedabad": {"City": "Ahmedabad", "State": "Gujarat"},
+#     "Kozhikode": {"City": "Kozhikode", "State": "Kerala"}
+# }
+# mapping_lower = {k.lower(): v for k, v in location_mapping.items()}
 
-state_codes = {
-    'Maharashtra': 'MH', 'Tamil Nadu': 'TN', 'Goa': 'GA', 'Telangana': 'TG',
-    'Rajasthan': 'RJ', 'Chhattisgarh': 'CG', 'Karnataka': 'KA', 'Uttar Pradesh': 'UP',
-    'Odisha': 'OR', 'Punjab': 'PB', 'Gujarat': 'GJ', 'West Bengal': 'WB',
-    'Jharkhand': 'JH', 'Kerala': 'KL'
-}
+# state_codes = {
+#     'Maharashtra': 'MH', 'Tamil Nadu': 'TN', 'Goa': 'GA', 'Telangana': 'TG',
+#     'Rajasthan': 'RJ', 'Chhattisgarh': 'CG', 'Karnataka': 'KA', 'Uttar Pradesh': 'UP',
+#     'Odisha': 'OR', 'Punjab': 'PB', 'Gujarat': 'GJ', 'West Bengal': 'WB',
+#     'Jharkhand': 'JH', 'Kerala': 'KL'
+# }
+if 'location_mapping' not in st.session_state:
+    st.session_state.location_mapping = {
+        "THVM": {"City": "Thivim", "State": "Goa"},
+        "katpadi": {"City": "Katpadi", "State": "Tamil Nadu"},
+        "CHZ": {"City": "Charlapalli", "State": "Telangana"},
+        "PUNE": {"City": "Pune", "State": "Maharashtra"},
+        "AJMER": {"City": "Ajmer", "State": "Rajasthan"},
+        "BSP": {"City": "Bilaspur", "State": "Chhattisgarh"},
+        "Visvesvaraya Museum": {"City": "Bengaluru", "State": "Karnataka"},
+        "Varanasi": {"City": "Varanasi", "State": "Uttar Pradesh"},
+        "Nagpur": {"City": "Nagpur", "State": "Maharashtra"},
+        "KRP": {"City": "Krishna Raj Puram", "State": "Karnataka"},
+        "KP": {"City": "Pune", "State": "Maharashtra"},
+        "UD": {"City": "Udupi", "State": "Karnataka"},
+        "Ludhiana": {"City": "Ludhiana", "State": "Punjab"},
+        "Amritsar": {"City": "Amritsar", "State": "Punjab"},
+        "Nagapattinam": {"City": "Nagapattinam", "State": "Tamil Nadu"},
+        "Hubballi Bus Stand": {"City": "Hubballi", "State": "Karnataka"},
+        "Villupuram": {"City": "Villupuram", "State": "Tamil Nadu"},
+        "BRC": {"City": "Vadodara", "State": "Gujarat"},
+        "RN": {"City": "Ratnagiri", "State": "Maharashtra"},
+        "Tiruvannamalai": {"City": "Tiruvannamalai", "State": "Tamil Nadu"},
+        "GHM": {"City": "Ghoom", "State": "West Bengal"},
+        "KSR": {"City": "Bengaluru", "State": "Karnataka"},
+        "Melmaruvathur": {"City": "Melmaruvathur", "State": "Tamil Nadu"},
+        "Shirdi": {"City": "Shirdi", "State": "Maharashtra"},
+        "MMR": {"City": "Manmad", "State": "Maharashtra"},
+        "JAM": {"City": "Jamnagar", "State": "Gujarat"},
+        "Jasidih": {"City": "Jasidih", "State": "Jharkhand"},
+        "Manglore Central K": {"City": "Mangaluru", "State": "Karnataka"},
+        "Tirur": {"City": "Tirur", "State": "Kerala"},
+        "Kannur": {"City": "Kannur", "State": "Kerala"},
+        "CSMT": {"City": "Mumbai", "State": "Maharashtra"},
+        "Jalandhar": {"City": "Jalandhar", "State": "Punjab"},
+        "SEG": {"City": "Shegaon", "State": "Maharashtra"},
+        "Tiruvannamalai Arunachaleswarar Temple": {"City": "Tiruvannamalai", "State": "Tamil Nadu"},
+        "Ayodhya": {"City": "Ayodhya", "State": "Uttar Pradesh"},
+        "Lucknow": {"City": "Lucknow", "State": "Uttar Pradesh"},
+        "SANTRAGACHI": {"City": "Howrah", "State": "West Bengal"},
+        "Shalimar": {"City": "Howrah", "State": "West Bengal"},
+        "Statue of Unity": {"City": "Kevadia", "State": "Gujarat"},
+        "Ahmedabad": {"City": "Ahmedabad", "State": "Gujarat"},
+        "Kozhikode": {"City": "Kozhikode", "State": "Kerala"}
+    }
 
+if 'state_codes' not in st.session_state:
+    st.session_state.state_codes = {
+        'Maharashtra': 'MH', 'Tamil Nadu': 'TN', 'Goa': 'GA', 'Telangana': 'TG',
+        'Rajasthan': 'RJ', 'Chhattisgarh': 'CG', 'Karnataka': 'KA', 'Uttar Pradesh': 'UP',
+        'Odisha': 'OR', 'Punjab': 'PB', 'Gujarat': 'GJ', 'West Bengal': 'WB',
+        'Jharkhand': 'JH', 'Kerala': 'KL'
+    }
+
+# Compute lowercased mapping dynamically based on the current session memory
+mapping_lower = {k.lower(): v for k, v in st.session_state.location_mapping.items()}
+state_codes = st.session_state.state_codes
 def extract_locker_bank(notes):
     if pd.isna(notes): return ""
     try:
@@ -1042,7 +1097,31 @@ def generate_backend_analytics(raw_backend_df):
 
 # --- 4. Streamlit UI ---
 st.set_page_config(page_title="Locker Analytics Processor", layout="wide")
+with st.sidebar:
+    st.header("⚙️ Configuration")
+    with st.expander("📍 Add New Location Mapping", expanded=False):
+        st.write("Add missing locations so they map correctly to a City and State.")
+        new_code = st.text_input("Locker Bank Code (e.g., NDLS)")
+        new_city = st.text_input("City Name")
+        new_state = st.text_input("State Name (e.g., Delhi)")
+        new_holiday_code = st.text_input("Holiday State Code (e.g., DL) *Optional", help="Used to calculate regional holidays. E.g., MH, TN, DL")
+        
+        if st.button("➕ Add Location"):
+            if new_code and new_city and new_state:
+                # 1. Add to Location Mapping
+                st.session_state.location_mapping[new_code] = {"City": new_city, "State": new_state}
+                # 2. Add to State Codes if provided
+                if new_holiday_code:
+                    st.session_state.state_codes[new_state] = new_holiday_code.upper()
+                st.success(f"Successfully added {new_code} mapping!")
+                st.rerun() # Refresh the page to apply the new mapping immediately
+            else:
+                st.warning("Please fill in Code, City, and State.")
 
+
+st.title("🧳 Locker Data Processor & Analytics")
+
+tab1, tab2, tab3 = st.tabs(["⚙️ Data Processing", "📊 Advanced Analytics Dashboard", "🛠️ Hardware Optimizer"])
 st.title("🧳 Locker Data Processor & Analytics")
 
 tab1, tab2, tab3 = st.tabs(["⚙️ Data Processing", "📊 Advanced Analytics Dashboard", "🛠️ Hardware Optimizer"])
