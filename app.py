@@ -137,7 +137,7 @@ def generate_backend_analytics(raw_backend_df):
 
     if 'amount' in df_filtered.columns:
         df_filtered['amount'] = pd.to_numeric(df_filtered_completed['amount'], errors='coerce').fillna(0)
-        df_filtered['Initiated amount'] = pd.to_numeric(df_filtered_initiated['amount', errors = 'coerce']).fillna(0)
+        df_filtered['Initiated amount'] = pd.to_numeric(df_filtered_initiated['amount'], errors = 'coerce').fillna(0)
     if 'locker bank' in df_filtered.columns:
         df_filtered['cleaned_location'] = df_filtered['locker bank'].astype(str).apply(clean_locker_name)
         df_filtered['city'] = df_filtered['cleaned_location'].apply(lambda loc: mapping_lower.get(str(loc).lower(), {}).get("City", "Unknown"))
