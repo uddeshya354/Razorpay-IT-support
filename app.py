@@ -742,9 +742,9 @@ def generate_backend_analytics(raw_backend_df):
     df_filtered.columns = df_filtered.columns.str.strip().str.lower()
     
     # --- 1. FILTER FOR 'PAYMENT' TYPE ONLY ---
-    if 'payment type' in df_filtered.columns:
-        mask_payment = df_filtered['payment type'].astype(str).str.strip().str.lower() == 'payment'
-        df_filtered = df_filtered[mask_payment].copy()
+    # if 'payment type' in df_filtered.columns:
+    #     mask_payment = df_filtered['payment type'].astype(str).str.strip().str.lower() == 'payment'
+    #     df_filtered = df_filtered[mask_payment].copy()
 
     # --- 2. SAFELY PROCESS AMOUNTS (Handles commas like "1,000") ---
     if 'amount' in df_filtered.columns:
