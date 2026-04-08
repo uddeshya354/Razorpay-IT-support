@@ -60,7 +60,6 @@ state_codes = {
     'Jharkhand': 'JH', 'Kerala': 'KL'
 }
 
-# --- 2. Helper Functions ---
 def extract_locker_bank(notes):
     if pd.isna(notes): return ""
     try:
@@ -127,13 +126,18 @@ def generate_backend_analytics(raw_backend_df):
     df_filtered = raw_backend_df.copy()
     df_filtered.columns = df_filtered.columns.str.strip().str.lower()
     
-    if 'payment type' in df_filtered.columns:
-        mask = df_filtered['payment type'].astype(str).str.strip().str.lower() == 'payment'
-        df_filtered = df_filtered[mask].copy()
+    # if 'payment type' in df_filtered.columns:
+    #     mask = df_filtered['payment type'].astype(str).str.strip().str.lower() == 'payment'
+    #     df_filtered = df_filtered[mask].copy()
+    if 'Status' in df_filtered.columns:
+        mask_initiated = df_filtered['Status'].astype(str).str.strip().str.lower() == 'Initiated'
+        df_filtered_initiated = df_filtered[mask_initiated].copy()
+        mask_completed = df_filtered['Status'].astype(str).str.strip().str.lower() == 'Completed'
+        df_filtered_completed = df_filtered[mask_completed].copy()
 
     if 'amount' in df_filtered.columns:
-        df_filtered['amount'] = pd.to_numeric(df_filtered['amount'], errors='coerce').fillna(0)
-
+        df_filtered['amount'] = pd.to_numeric(df_filtered_completed['amount'], errors='coerce').fillna(0)
+        df_filtered['Initiated amount'] = pd.to_numeric(df_filtered_initiated['amount', errors = 'coerce']).fillna(0)
     if 'locker bank' in df_filtered.columns:
         df_filtered['cleaned_location'] = df_filtered['locker bank'].astype(str).apply(clean_locker_name)
         df_filtered['city'] = df_filtered['cleaned_location'].apply(lambda loc: mapping_lower.get(str(loc).lower(), {}).get("City", "Unknown"))
@@ -157,7 +161,7 @@ def generate_backend_analytics(raw_backend_df):
             
         df_filtered['is_holiday'] = df_filtered.apply(check_holiday, axis=1)
         df_filtered['is_weekend_or_holiday'] = df_filtered['is_weekend'] | df_filtered['is_holiday']
-
+        df_filtered['No. Initiated Transaction'] = df_filtered
         def get_tod(hour):
             if pd.isna(hour): return 'Unknown'
             if 6 <= hour < 12: return 'Morning (6AM - 12PM)'
@@ -180,7 +184,9 @@ def generate_backend_analytics(raw_backend_df):
     if 'locker bank' in df_filtered.columns and 'amount' in df_filtered.columns:
         loc_rev = df_filtered.groupby('locker bank').agg(
             Total_Revenue=('amount', 'sum'),
+            Initiated_Revenue = ('Initiated amount', 'sum'),
             Total_Transactions=('amount', 'count'),
+            Total_Initiated_Transactions = ('Initiated amount', 'count')
             AOV=('amount', 'mean'),
             Pct_Weekend_Holiday=('is_weekend_or_holiday', 'mean')
         ).reset_index()
