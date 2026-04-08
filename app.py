@@ -674,33 +674,105 @@ def process_dataframe(df, backend_df=None):
     df = df.drop(columns=['Raw_Locker_Bank', 'Cleaned_Location'])
     return df
 
+# def generate_backend_analytics(raw_backend_df):
+#     df_filtered = raw_backend_df.copy()
+#     df_filtered.columns = df_filtered.columns.str.strip().str.lower()
+    
+#     # --- 1. SAFELY PROCESS AMOUNTS & STATUS (Using np.where) ---
+#     if 'amount' in df_filtered.columns:
+#         df_filtered['amount'] = pd.to_numeric(df_filtered['amount'], errors='coerce').fillna(0)
+#     else:
+#         df_filtered['amount'] = 0
+
+#     if 'status' in df_filtered.columns:
+#         status_clean = df_filtered['status'].astype(str).str.strip().str.lower()
+        
+#         # Create columns dynamically without losing rows
+#         df_filtered['Completed_Amount'] = np.where(status_clean == 'completed', df_filtered['amount'], 0)
+#         df_filtered['Initiated_Amount'] = np.where(status_clean == 'initiated', df_filtered['amount'], 0)
+        
+#         # Create flag columns to easily count transactions later
+#         df_filtered['Is_Completed'] = np.where(status_clean == 'completed', 1, 0)
+#         df_filtered['Is_Initiated'] = np.where(status_clean == 'initiated', 1, 0)
+#     else:
+#         # Fallbacks if status column doesn't exist
+#         df_filtered['Completed_Amount'] = df_filtered['amount']
+#         df_filtered['Initiated_Amount'] = 0
+#         df_filtered['Is_Completed'] = 1
+#         df_filtered['Is_Initiated'] = 0
+
+#     if 'locker bank' in df_filtered.columns:
+#         df_filtered['cleaned_location'] = df_filtered['locker bank'].astype(str).apply(clean_locker_name)
+#         df_filtered['city'] = df_filtered['cleaned_location'].apply(lambda loc: mapping_lower.get(str(loc).lower(), {}).get("City", "Unknown"))
+#         df_filtered['state'] = df_filtered['cleaned_location'].apply(lambda loc: mapping_lower.get(str(loc).lower(), {}).get("State", "Unknown"))
+
+#     # --- Time, Weekend & Holiday Analysis ---
+#     if 'date created' in df_filtered.columns:
+#         df_filtered['date created'] = pd.to_datetime(df_filtered['date created'], errors='coerce')
+#         df_filtered['date_only'] = df_filtered['date created'].dt.date
+#         df_filtered['is_weekend'] = df_filtered['date created'].dt.weekday >= 5
+        
+#         def check_holiday(row):
+#             try:
+#                 state_name = row.get('state', '')
+#                 code = state_codes.get(state_name)
+#                 if code and pd.notna(row['date_only']):
+#                     in_holidays = holidays.IN(subdiv=code, years=row['date_only'].year)
+#                     return row['date_only'] in in_holidays
+#             except: pass
+#             return False
+            
+#         df_filtered['is_holiday'] = df_filtered.apply(check_holiday, axis=1)
+#         df_filtered['is_weekend_or_holiday'] = df_filtered['is_weekend'] | df_filtered['is_holiday']
+
+#         def get_tod(hour):
+#             if pd.isna(hour): return 'Unknown'
+#             if 6 <= hour < 12: return 'Morning (6AM - 12PM)'
+#             elif 12 <= hour < 18: return 'Afternoon (12PM - 6PM)'
+#             else: return 'Night (6PM - 6AM)'
+            
+#         df_filtered['time_of_day'] = df_filtered['date created'].dt.hour.apply(get_tod)
+#         time_dist = df_filtered[df_filtered['Is_Completed'] == 1]['time_of_day'].value_counts(normalize=True).reset_index()
+#         time_dist.columns = ['Time of Day', 'Percentage']
+#         time_dist['Percentage'] = (time_dist['Percentage'] * 100).round(2).astype(str) + '%'
+#     else:
+#         time_dist = pd.DataFrame()
 def generate_backend_analytics(raw_backend_df):
     df_filtered = raw_backend_df.copy()
     df_filtered.columns = df_filtered.columns.str.strip().str.lower()
     
-    # --- 1. SAFELY PROCESS AMOUNTS & STATUS (Using np.where) ---
+    # --- 1. FILTER FOR 'PAYMENT' TYPE ONLY ---
+    if 'payment type' in df_filtered.columns:
+        mask_payment = df_filtered['payment type'].astype(str).str.strip().str.lower() == 'payment'
+        df_filtered = df_filtered[mask_payment].copy()
+
+    # --- 2. SAFELY PROCESS AMOUNTS (Handles commas like "1,000") ---
     if 'amount' in df_filtered.columns:
-        df_filtered['amount'] = pd.to_numeric(df_filtered['amount'], errors='coerce').fillna(0)
+        clean_amount = df_filtered['amount'].astype(str).str.replace(',', '', regex=True)
+        df_filtered['amount'] = pd.to_numeric(clean_amount, errors='coerce').fillna(0)
     else:
         df_filtered['amount'] = 0
 
+    # --- 3. BULLETPROOF STATUS MASKING (Using .str.contains) ---
     if 'status' in df_filtered.columns:
-        status_clean = df_filtered['status'].astype(str).str.strip().str.lower()
+        status_clean = df_filtered['status'].astype(str).str.lower()
         
-        # Create columns dynamically without losing rows
-        df_filtered['Completed_Amount'] = np.where(status_clean == 'completed', df_filtered['amount'], 0)
-        df_filtered['Initiated_Amount'] = np.where(status_clean == 'initiated', df_filtered['amount'], 0)
+        # .contains() is much safer than ==. It catches "Initiated", " Initiated ", "Payment Initiated", etc.
+        is_completed = status_clean.str.contains('complet', na=False)
+        is_initiated = status_clean.str.contains('initiat', na=False)
         
-        # Create flag columns to easily count transactions later
-        df_filtered['Is_Completed'] = np.where(status_clean == 'completed', 1, 0)
-        df_filtered['Is_Initiated'] = np.where(status_clean == 'initiated', 1, 0)
+        df_filtered['Completed_Amount'] = np.where(is_completed, df_filtered['amount'], 0)
+        df_filtered['Initiated_Amount'] = np.where(is_initiated, df_filtered['amount'], 0)
+        
+        df_filtered['Is_Completed'] = np.where(is_completed, 1, 0)
+        df_filtered['Is_Initiated'] = np.where(is_initiated, 1, 0)
     else:
-        # Fallbacks if status column doesn't exist
         df_filtered['Completed_Amount'] = df_filtered['amount']
         df_filtered['Initiated_Amount'] = 0
         df_filtered['Is_Completed'] = 1
         df_filtered['Is_Initiated'] = 0
 
+    # --- Location Mapping ---
     if 'locker bank' in df_filtered.columns:
         df_filtered['cleaned_location'] = df_filtered['locker bank'].astype(str).apply(clean_locker_name)
         df_filtered['city'] = df_filtered['cleaned_location'].apply(lambda loc: mapping_lower.get(str(loc).lower(), {}).get("City", "Unknown"))
@@ -738,6 +810,117 @@ def generate_backend_analytics(raw_backend_df):
     else:
         time_dist = pd.DataFrame()
 
+    # --- Location Performance ---
+    def calc_entropy(series):
+        counts = series.value_counts(normalize=True)
+        return -(counts * np.log2(counts)).sum()
+
+    loc_rev = pd.DataFrame()
+    if 'locker bank' in df_filtered.columns:
+        loc_rev = df_filtered.groupby('locker bank').agg(
+            Total_Revenue=('Completed_Amount', 'sum'),
+            Initiated_Revenue=('Initiated_Amount', 'sum'),
+            Total_Transactions=('Is_Completed', 'sum'),
+            Total_Initiated_Transactions=('Is_Initiated', 'sum'),
+            Pct_Weekend_Holiday=('is_weekend_or_holiday', 'mean')
+        ).reset_index()
+        
+        loc_rev.rename(columns={'locker bank': 'Locker Bank'}, inplace=True)
+        
+        loc_rev['AOV'] = (loc_rev['Total_Revenue'] / loc_rev['Total_Transactions'].replace(0, 1)).round(2)
+        loc_rev['Total_Revenue'] = loc_rev['Total_Revenue'].round(2)
+        loc_rev['Initiated_Revenue'] = loc_rev['Initiated_Revenue'].round(2)
+        loc_rev['Pct_Weekend_Holiday'] = (loc_rev['Pct_Weekend_Holiday'] * 100).round(1).astype(str) + '%'
+        loc_rev = loc_rev.sort_values(by='Total_Revenue', ascending=False)
+        
+        df_completed = df_filtered[df_filtered['Is_Completed'] == 1]
+        
+        if 'locker size' in df_completed.columns:
+            entropy_df = df_completed.groupby('locker bank')['locker size'].apply(calc_entropy).reset_index(name='Size Entropy')
+            entropy_df.rename(columns={'locker bank': 'Locker Bank'}, inplace=True)
+            loc_rev = pd.merge(loc_rev, entropy_df, on='Locker Bank', how='left')
+            loc_rev['Size Entropy'] = loc_rev['Size Entropy'].round(3)
+            
+            bank_sizes = pd.crosstab(df_completed['locker bank'], df_completed['locker size'], normalize='index') * 100
+            bank_sizes = bank_sizes.round(1).astype(str) + '%'
+            bank_sizes.columns = [f"% {col}" for col in bank_sizes.columns]
+            bank_sizes = bank_sizes.reset_index().rename(columns={'locker bank': 'Locker Bank'})
+            loc_rev = pd.merge(loc_rev, bank_sizes, on='Locker Bank', how='left')
+
+    # --- City Revenue ---
+    if 'city' in df_filtered.columns:
+        city_rev = df_filtered.groupby('city')['Completed_Amount'].sum().reset_index().sort_values(by='Completed_Amount', ascending=False)
+        city_rev.rename(columns={'city': 'City', 'Completed_Amount': 'Amount'}, inplace=True)
+    else:
+        city_rev = pd.DataFrame()
+
+    # --- User Behavior & Cohort Inferences ---
+    user_df = pd.DataFrame()
+    repeat_users = pd.DataFrame()
+    loc_repeat_stats = pd.DataFrame()
+    
+    if 'user mobile' in df_filtered.columns and 'date updated' in df_filtered.columns:
+        df_users = df_filtered[df_filtered['Is_Completed'] == 1].dropna(subset=['date updated', 'user mobile']).copy()
+        
+        if not df_users.empty:
+            df_users['date updated'] = pd.to_datetime(df_users['date updated'], errors='coerce')
+            df_users['date_only'] = df_users['date updated'].dt.date
+            
+            user_df = df_users.groupby('user mobile').agg(
+                total_transactions=('Completed_Amount', 'count'),
+                active_days=('date_only', 'nunique'),
+                total_amount=('Completed_Amount', 'sum')
+            ).reset_index()
+            
+            user_df.rename(columns={'user mobile': 'User Mobile'}, inplace=True)
+            
+            if 'locker size' in df_users.columns:
+                size_map = {'Medium': 'M', 'Large': 'L', 'Extra Large': 'XL'}
+                df_users['size_clean'] = df_users['locker size'].map(size_map).fillna('unknown')
+                
+                size_counts = df_users.groupby(['user mobile', 'size_clean']).size().unstack(fill_value=0)
+                size_pct = size_counts.div(size_counts.sum(axis=1), axis=0).fillna(0) * 100
+                size_pct = size_pct.rename(columns={'M': 'pct_M', 'L': 'pct_L', 'XL': 'pct_XL'})
+                size_pct.index.name = 'User Mobile'
+                
+                user_df = user_df.merge(size_pct, on='User Mobile', how='left').fillna(0)
+                
+                size_cols = [c for c in ['pct_M', 'pct_L', 'pct_XL'] if c in user_df.columns]
+                if size_cols:
+                    user_df['dominant_size'] = user_df[size_cols].idxmax(axis=1).str.replace('pct_', '')
+                    user_df['size_entropy'] = user_df[size_cols].apply(
+                        lambda row: entropy(row.values / 100) if row.sum() > 0 else 0.0, axis=1
+                    ).round(3)
+
+            repeat_users = user_df[
+                (user_df['total_transactions'] >= 2) & 
+                (user_df['active_days'] >= 2)
+            ].copy()
+            
+            if not repeat_users.empty and 'locker bank' in df_users.columns:
+                repeat_mobiles = repeat_users['User Mobile'].tolist()
+                df_rep_only = df_users[df_users['user mobile'].isin(repeat_mobiles)].copy()
+                
+                df_rep_only = df_rep_only.sort_values(['locker bank', 'user mobile', 'date updated'])
+                df_rep_only['prev_date'] = df_rep_only.groupby(['locker bank', 'user mobile'])['date_only'].shift(1)
+                df_rep_only['gap_days'] = (pd.to_datetime(df_rep_only['date_only']) - pd.to_datetime(df_rep_only['prev_date'])).dt.days
+
+                loc_repeat_stats = df_rep_only.groupby('locker bank').agg(
+                    Loyal_Transactions=('Completed_Amount', 'count'),
+                    Avg_Gap_Days=('gap_days', 'mean')
+                ).reset_index()
+                
+                loc_repeat_stats['Avg_Gap_Days'] = loc_repeat_stats['Avg_Gap_Days'].round(1)
+                loc_repeat_stats.rename(columns={'locker bank': 'Locker Bank'}, inplace=True)
+                
+                if 'locker size' in df_rep_only.columns:
+                    rep_bank_sizes = pd.crosstab(df_rep_only['locker bank'], df_rep_only['locker size'], normalize='index') * 100
+                    rep_bank_sizes = rep_bank_sizes.round(1).astype(str) + '%'
+                    rep_bank_sizes.columns = [f"Loyal % {col}" for col in rep_bank_sizes.columns]
+                    rep_bank_sizes = rep_bank_sizes.reset_index().rename(columns={'locker bank': 'Locker Bank'})
+                    loc_repeat_stats = pd.merge(loc_repeat_stats, rep_bank_sizes, on='Locker Bank', how='left')
+
+    return loc_rev, city_rev, time_dist, user_df, repeat_users, loc_repeat_stats
     # --- Location Performance ---
     def calc_entropy(series):
         counts = series.value_counts(normalize=True)
