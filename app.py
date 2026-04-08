@@ -282,56 +282,73 @@ def generate_backend_analytics(raw_backend_df):
     return loc_rev, city_rev, time_dist, user_df, repeat_users, loc_repeat_stats
 
 # --- 4. Streamlit UI ---
+# --- 4. Streamlit UI ---
 st.set_page_config(page_title="Locker Analytics Processor", layout="wide")
 
 st.title("🧳 Locker Data Processor & Analytics")
 
-tab1, tab2 = st.tabs(["⚙️ Data Processing", "📊 Advanced Analytics Dashboard"])
+tab1, tab2, tab3 = st.tabs(["⚙️ Data Processing", "📊 Advanced Analytics Dashboard", "🛠️ Hardware Optimizer"])
+
+# 1. Initialize variables globally so the app NEVER crashes if a file is missing
+loc_rev = pd.DataFrame()
+city_rev = pd.DataFrame()
+time_dist = pd.DataFrame()
+user_df = pd.DataFrame()
+repeat_users = pd.DataFrame()
+loc_repeat_stats = pd.DataFrame()
+processed_df = pd.DataFrame()
+backend_df = None
 
 with tab1:
-    st.write("Upload files to map missing locations and generate reports.")
+    st.write("Upload files to map missing locations or generate backend reports.")
     col1, col2 = st.columns(2)
     with col1:
-        settlement_file = st.file_uploader("1. Upload Settlement .xlsx/.csv", type=['xlsx', 'csv'], key="settlement")
+        settlement_file = st.file_uploader("1. Upload Settlement .xlsx/.csv (Optional)", type=['xlsx', 'csv'], key="settlement")
     with col2:
-        backend_file = st.file_uploader("2. Upload Backend .xlsx/.csv", type=['xlsx', 'csv'], key="backend")
+        backend_file = st.file_uploader("2. Upload Backend .xlsx/.csv (For Analytics)", type=['xlsx', 'csv'], key="backend")
 
+    # --- INDEPENDENT BACKEND PROCESSING ---
+    if backend_file is not None:
+        try:
+            backend_df = pd.read_csv(backend_file) if backend_file.name.endswith('.csv') else pd.read_excel(backend_file)
+            loc_rev, city_rev, time_dist, user_df, repeat_users, loc_repeat_stats = generate_backend_analytics(backend_df)
+            st.success("✅ Backend data loaded & Analytics generated!")
+        except Exception as e:
+            st.error(f"Error processing Backend Data: {e}")
+
+    # --- INDEPENDENT SETTLEMENT PROCESSING ---
     if settlement_file is not None:
         try:
             df = pd.read_csv(settlement_file) if settlement_file.name.endswith('.csv') else pd.read_excel(settlement_file)
-            loc_rev, city_rev, time_dist, user_df, repeat_users, loc_repeat_stats = pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
-
-            if backend_file is not None:
-                backend_df = pd.read_csv(backend_file) if backend_file.name.endswith('.csv') else pd.read_excel(backend_file)
-                # Ensure 6 variables are returned and captured exactly!
-                loc_rev, city_rev, time_dist, user_df, repeat_users, loc_repeat_stats = generate_backend_analytics(backend_df)
-                st.success("Backend data loaded. Analytics generated!")
-            
-            processed_df = process_dataframe(df, backend_df if backend_file else None)
-            
+            processed_df = process_dataframe(df, backend_df)
+            st.success("✅ Settlement mapping complete!")
             st.write("### Processed Data Preview")
             st.dataframe(processed_df[['entity_id', 'payment_notes', 'City', 'State']].head())
-            
-            output = io.BytesIO()
-            with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-                processed_df.to_excel(writer, index=False, sheet_name='Processed_Settlements')
-                if backend_file is not None:
-                    if not loc_rev.empty: loc_rev.to_excel(writer, index=False, sheet_name='Bank_Performance')
-                    if not city_rev.empty: city_rev.to_excel(writer, index=False, sheet_name='Revenue_By_City')
-                    if not time_dist.empty: time_dist.to_excel(writer, index=False, sheet_name='Time_of_Day_Stats')
-                    if not loc_repeat_stats.empty: loc_repeat_stats.to_excel(writer, index=False, sheet_name='Loyalty_Stats')
-                    if not user_df.empty:
-                        user_df.to_excel(writer, index=False, sheet_name='All_User_Analytics')
-                        repeat_users.to_excel(writer, index=False, sheet_name='Top_Repeat_Users')
-
-            st.download_button(
-                label="📥 Download Advanced Multi-Sheet Report",
-                data=output.getvalue(),
-                file_name=f"Advanced_Report.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
         except Exception as e:
-            st.error(f"An error occurred: {e}")
+            st.error(f"Error processing Settlement Data: {e}")
+
+    # --- UNIFIED DOWNLOAD BUTTON ---
+    if settlement_file is not None or backend_file is not None:
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+            if not processed_df.empty:
+                processed_df.to_excel(writer, index=False, sheet_name='Processed_Settlements')
+            
+            if backend_file is not None:
+                if not loc_rev.empty: loc_rev.to_excel(writer, index=False, sheet_name='Bank_Performance')
+                if not city_rev.empty: city_rev.to_excel(writer, index=False, sheet_name='Revenue_By_City')
+                if not time_dist.empty: time_dist.to_excel(writer, index=False, sheet_name='Time_of_Day_Stats')
+                if not loc_repeat_stats.empty: loc_repeat_stats.to_excel(writer, index=False, sheet_name='Loyalty_Stats')
+                if not user_df.empty:
+                    user_df.to_excel(writer, index=False, sheet_name='All_User_Analytics')
+                    repeat_users.to_excel(writer, index=False, sheet_name='Top_Repeat_Users')
+
+        st.download_button(
+            label="📥 Download Advanced Multi-Sheet Report",
+            data=output.getvalue(),
+            file_name="Advanced_Locker_Report.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
 
 with tab2:
     if backend_file is None:
@@ -341,11 +358,6 @@ with tab2:
         
         if loc_rev.empty and city_rev.empty:
             st.error("⚠️ No usable data found. All rows were filtered out.")
-            st.write("**Debugging Info:**")
-            st.write("1. Does your file have 'Amount', 'Locker Bank', and 'Payment Type' columns?")
-            st.write("Columns found:", list(backend_df.columns))
-            if 'Payment Type' in backend_df.columns:
-                st.write("2. We only keep rows where 'Payment Type' equals 'Payment'. Unique values found in your file:", backend_df['Payment Type'].unique())
         else:
             st.write("*Note: Filtering for rows where `Payment Type` = 'Payment'*")
             
@@ -360,12 +372,10 @@ with tab2:
                 
             st.markdown("---")
             st.write("### 📍 Location Performance: Revenue, Entropy & Size Distribution")
-            st.caption("This table breaks down total revenue, AOV, and exact percentage of M, L, XL locker bookings for **each individual location**.")
             st.dataframe(loc_rev, use_container_width=True)
             
             st.markdown("---")
             st.write("### 💎 Location-Wise Repeat Customer Behavior")
-            st.caption("This isolates ONLY highly loyal users (≥2 bookings) to see how often they return (Avg Gap Days) and what sizes they prefer compared to normal users.")
             if not loc_repeat_stats.empty:
                 st.dataframe(loc_repeat_stats, use_container_width=True)
             else:
@@ -385,9 +395,6 @@ with tab2:
                 kpi3.metric("Customer Retention Rate", f"{repeat_rate:.1f}%")
                 
                 st.write("### 🏆 Top Repeat Customers Profile")
-                st.caption("These are your most valuable users. High 'Size Entropy' indicates they use multiple locker sizes depending on their needs.")
-                
-                # Dynamic and Safe Column Selection to prevent KeyError
                 display_cols = ['User Mobile', 'total_transactions', 'active_days', 'total_amount']
                 display_cols = [c for c in display_cols if c in repeat_users.columns] 
                 if 'dominant_size' in repeat_users.columns:
@@ -396,6 +403,69 @@ with tab2:
                 if not repeat_users.empty:
                     st.dataframe(repeat_users.sort_values('total_transactions', ascending=False)[display_cols].head(15), use_container_width=True)
 
+# with tab3:
+#     st.subheader("🛠️ AI Hardware Layout Optimizer")
+#     st.write("Use historical backend data to generate optimal locker blueprints for new sites using PuLP.")
+    
+#     if backend_file is not None and not loc_rev.empty:
+#         try:
+#             import pulp
+#             c1, c2 = st.columns(2)
+#             with c1:
+#                 target_station = st.selectbox("Select existing station to use as Demand Profile:", loc_rev['Locker Bank'].tolist())
+#                 total_cols_available = st.number_input("Max Columns Available at New Site:", min_value=10, max_value=200, value=46)
+            
+#             with c2:
+#                 st.info("Physical Hardware Specs")
+#                 lockers_per_col_M = st.number_input("M Lockers per column:", value=4)
+#                 lockers_per_col_L = st.number_input("L Lockers per column:", value=3)
+#                 lockers_per_col_XL = st.number_input("XL Lockers per column:", value=2)
+
+#             station_data = loc_rev[loc_rev['Locker Bank'] == target_station].iloc[0]
+            
+#             st.write("---")
+#             st.write(f"**Extracted Live Profile for {target_station}:**")
+#             st.write(f"Average Order Value: ₹{station_data['AOV']}")
+            
+#             if st.button("🚀 Run PuLP Optimization"):
+#                 with st.spinner("Running integer optimization..."):
+#                     base_aov = station_data['AOV']
+#                     rev_per_locker = {'M': base_aov * 0.8, 'L': base_aov * 1.2, 'XL': base_aov * 1.8}
+#                     lockers_per_column = {'M': lockers_per_col_M, 'L': lockers_per_col_L, 'XL': lockers_per_col_XL}
+                    
+#                     pct_m = float(str(station_data.get('% M', '0')).replace('%','')) / 100
+#                     pct_l = float(str(station_data.get('% L', '0')).replace('%','')) / 100
+#                     pct_xl = float(str(station_data.get('% XL', '0')).replace('%','')) / 100
+                    
+#                     min_columns = {
+#                         'M': max(2, int(total_cols_available * pct_m * 0.5)),
+#                         'L': max(2, int(total_cols_available * pct_l * 0.5)),
+#                         'XL': max(2, int(total_cols_available * pct_xl * 0.5))
+#                     }
+
+#                     prob = pulp.LpProblem("Locker_Revenue_Optimization", pulp.LpMaximize)
+#                     c = pulp.LpVariable.dicts("columns", ['M', 'L', 'XL'], lowBound=0, cat='Integer')
+
+#                     prob += pulp.lpSum(c[size] * lockers_per_column[size] * rev_per_locker[size] for size in ['M', 'L', 'XL'])
+#                     prob += pulp.lpSum(c[size] for size in ['M', 'L', 'XL']) <= total_cols_available
+#                     for size in ['M', 'L', 'XL']: prob += c[size] >= min_columns[size]
+
+#                     prob.solve(pulp.PULP_CBC_CMD(msg=0))
+
+#                     if pulp.LpStatus[prob.status] == 'Optimal':
+#                         solution = {size: int(c[size].value()) for size in ['M', 'L', 'XL']}
+#                         st.success("✅ Optimal Blueprint Generated!")
+#                         r1, r2, r3 = st.columns(3)
+#                         r1.metric("Medium Columns", solution['M'], f"{solution['M'] * lockers_per_col_M} doors")
+#                         r2.metric("Large Columns", solution['L'], f"{solution['L'] * lockers_per_col_L} doors")
+#                         r3.metric("XL Columns", solution['XL'], f"{solution['XL'] * lockers_per_col_XL} doors")
+#                         st.write(f"**Projected Daily Revenue Capability:** ₹{int(pulp.value(prob.objective)):,}")
+#                     else:
+#                         st.error("Could not find an optimal solution with the given constraints.")
+#         except ImportError:
+#             st.error("⚠️ The `pulp` library is not installed. Please run `pip install pulp` in your terminal.")
+#     else:
+#         st.info("Upload backend data in Tab 1 to unlock the Hardware Optimizer.")
 
 # with tab3:
 #     st.subheader("🛠️ AI Hardware Layout Optimizer")
