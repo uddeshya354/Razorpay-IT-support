@@ -428,7 +428,29 @@ with tab1:
         except Exception as e:
             st.error(f"Error processing Settlement Data: {e}")
 
-    if settlement_files or backend_files:
+    # if settlement_files or backend_files:
+    #     output = io.BytesIO()
+    #     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+    #         if not processed_df.empty:
+    #             processed_df.to_excel(writer, index=False, sheet_name='Processed_Settlements')
+            
+    #         if backend_files:
+    #             if not loc_rev.empty: loc_rev.to_excel(writer, index=False, sheet_name='Bank_Performance')
+    #             if not city_rev.empty: city_rev.to_excel(writer, index=False, sheet_name='Revenue_By_City')
+    #             if not daily_txns.empty: daily_txns.to_excel(writer, index=False, sheet_name='Daily_Transactions')
+    #             if not time_dist.empty: time_dist.to_excel(writer, index=False, sheet_name='Time_of_Day_Stats')
+    #             if not loc_repeat_stats.empty: loc_repeat_stats.to_excel(writer, index=False, sheet_name='Loyalty_Stats')
+    #             if not user_df.empty:
+    #                 user_df.to_excel(writer, index=False, sheet_name='All_User_Analytics')
+    #                 repeat_users.to_excel(writer, index=False, sheet_name='Top_Repeat_Users')
+
+    #     st.download_button(
+    #         label="📥 Download Combined Advanced Report",
+    #         data=output.getvalue(),
+    #         file_name="Combined_Advanced_Locker_Report.xlsx",
+    #         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    #     )
+if settlement_files or backend_files:
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
             if not processed_df.empty:
@@ -437,7 +459,17 @@ with tab1:
             if backend_files:
                 if not loc_rev.empty: loc_rev.to_excel(writer, index=False, sheet_name='Bank_Performance')
                 if not city_rev.empty: city_rev.to_excel(writer, index=False, sheet_name='Revenue_By_City')
-                if not daily_txns.empty: daily_txns.to_excel(writer, index=False, sheet_name='Daily_Transactions')
+                
+                # --- FIX 1: Convert dates to strings so Excel doesn't crash ---
+                if not daily_txns.empty: 
+                    export_txns = daily_txns.copy()
+                    export_txns['date_only'] = export_txns['date_only'].astype(str)
+                    export_txns.to_excel(writer, index=False, sheet_name='Daily_Transactions')
+                
+                # --- FIX 2: Add the missing Locker Sizes sheet ---
+                if not overall_sizes.empty: 
+                    overall_sizes.to_excel(writer, index=False, sheet_name='Overall_Locker_Sizes')
+                    
                 if not time_dist.empty: time_dist.to_excel(writer, index=False, sheet_name='Time_of_Day_Stats')
                 if not loc_repeat_stats.empty: loc_repeat_stats.to_excel(writer, index=False, sheet_name='Loyalty_Stats')
                 if not user_df.empty:
@@ -450,7 +482,6 @@ with tab1:
             file_name="Combined_Advanced_Locker_Report.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
-
 with tab2:
     if not backend_files:
         st.info("👈 Please upload the Backend Data file(s) in the 'Data Processing' tab to view analytics.")
