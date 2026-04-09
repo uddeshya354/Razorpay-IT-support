@@ -1749,7 +1749,7 @@ def generate_backend_analytics(raw_backend_df, raw_refund_df=None):
         
         loc_rev['AOV'] = (loc_rev['Total_Revenue'] / loc_rev['Total_Transactions'].replace(0, 1)).round(2)
         loc_rev['Total_Revenue'] = loc_rev['Total_Revenue'].round(2)
-        loc_rev['Refunded_Revenue'] = loc_rev['Refunded_Revenue'].round(2) # <--- Clean rounding
+        loc_rev['Refunded_amount'] = loc_rev['Refunded_Revenue'].round(2) # <--- Clean rounding
         loc_rev['Initiated_Revenue'] = loc_rev['Initiated_Revenue'].round(2)
         loc_rev['Pct_Weekend_Holiday'] = (loc_rev['Pct_Weekend_Holiday'] * 100).round(1).astype(str) + '%'
         loc_rev = loc_rev.sort_values(by='Total_Revenue', ascending=False)
