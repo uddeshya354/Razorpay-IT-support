@@ -4,7 +4,7 @@ pune_df = pd.read_csv("input/")
 
 # 2. Flag the "Guard Present" days
 pune_df['date_only'] = pd.to_datetime(pune_df['date created']).dt.date
-pune_df['is_wednesday'] = pd.to_datetime(pune_df['date created']).dt.weekday == 2
+pune_df['is_thursday'] = pd.to_datetime(pune_df['date created']).dt.weekday == 3
 
 # List of specific leave dates
 leave_dates = [pd.to_datetime('2026-03-07').date(), pd.to_datetime('2026-03-17').date()]
@@ -12,7 +12,7 @@ start_date = pd.to_datetime('2026-03-04').date()
 
 def is_guard_present(row):
     if row['date_only'] < start_date: return False
-    if row['is_wednesday']: return False
+    if row['is_thursday']: return False
     if row['date_only'] in leave_dates: return False
     return True
 
