@@ -1,6 +1,7 @@
 streamlit
 pandas
-openpyxl
-xlsxwriter
+numpy
 scipy
 holidays
+matplotlib
+pulp
