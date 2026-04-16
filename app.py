@@ -757,10 +757,26 @@ def generate_backend_analytics(raw_backend_df, raw_refund_df=None):
         df_filtered['month_period'] = df_filtered['date created'].dt.to_period('M')
         
         # Seasonality: Revenue grouped by chronologically sorted months
+# --- NEW: Seasonality & Utilization Extraction ---
+        df_filtered['day_of_week'] = df_filtered['date created'].dt.day_name()
+        df_filtered['month_period'] = df_filtered['date created'].dt.to_period('M')
+        
+        # Seasonality: Revenue grouped by chronologically sorted months
         season_data = df_filtered[df_filtered['Is_Completed'] == 1].groupby('month_period')['Completed_Amount'].sum().reset_index()
         season_data['Month'] = season_data['month_period'].dt.strftime('%b %Y')
-        seasonality_df = season_data[['Month', 'Completed_Amount']].copy()
+        
+        # --- DATA SCIENCE UPGRADE: PEAK VS OFF-PEAK CLASSIFICATION ---
+        if not season_data.empty and len(season_data) > 1:
+            avg_monthly_rev = season_data['Completed_Amount'].mean()
+            # Tag months as Peak or Off-Peak based on the mathematical average
+            season_data['Status'] = np.where(season_data['Completed_Amount'] >= avg_monthly_rev, 'Peak', 'Off-Peak')
+            # Calculate how far above or below average this specific month was
+            season_data['% from Avg'] = ((season_data['Completed_Amount'] - avg_monthly_rev) / avg_monthly_rev * 100).round(1).astype(str) + '%'
+        else:
+            season_data['Status'] = 'Unknown'
+            season_data['% from Avg'] = '0%'
 
+        seasonality_df = season_data[['Month', 'Completed_Amount', 'Status', '% from Avg']].copy()
         def check_holiday(row):
             try:
                 state_name = row.get('state', '')
@@ -798,7 +814,7 @@ def generate_backend_analytics(raw_backend_df, raw_refund_df=None):
             col_order = ['Morning (6AM - 12PM)', 'Afternoon (12PM - 6PM)', 'Night (6PM - 6AM)']
             col_order = [c for c in col_order if c in utilization_matrix.columns]
             utilization_matrix = utilization_matrix[col_order]
-            
+            utilization_matrix['Total Bookings'] = utilization_matrix.sum(axis=1)
     else:
         time_dist = pd.DataFrame()
 
@@ -1059,14 +1075,35 @@ with tab2:
                 else:
                     st.info("No timeline data available.")
                     
+            # with c_chart2:
+            #     st.write("### 📅 Monthly Seasonality (Revenue)")
+            #     if not seasonality_df.empty:
+            #         season_plot = seasonality_df.set_index('Month')
+            #         st.bar_chart(season_plot)
+            #     else:
+            #         st.info("Not enough spanning data to show seasonality.")
             with c_chart2:
-                st.write("### 📅 Monthly Seasonality (Revenue)")
-                if not seasonality_df.empty:
-                    season_plot = seasonality_df.set_index('Month')
-                    st.bar_chart(season_plot)
-                else:
-                    st.info("Not enough spanning data to show seasonality.")
-                    
+                            st.write("### 📅 Monthly Seasonality (Revenue)")
+                            if not seasonality_df.empty:
+                                # Plot the visual chart
+                                season_plot = seasonality_df.set_index('Month')['Completed_Amount']
+                                st.bar_chart(season_plot)
+                                
+                                # --- DATA SCIENCE INFERENCE GENERATOR ---
+                                if len(seasonality_df) > 1:
+                                    avg_rev = seasonality_df['Completed_Amount'].mean()
+                                    peak_avg = seasonality_df[seasonality_df['Status'] == 'Peak']['Completed_Amount'].mean()
+                                    off_peak_avg = seasonality_df[seasonality_df['Status'] == 'Off-Peak']['Completed_Amount'].mean()
+                                    
+                                    # Prevent division by zero errors
+                                    if pd.notna(peak_avg) and pd.notna(off_peak_avg) and off_peak_avg > 0:
+                                        variance = ((peak_avg - off_peak_avg) / off_peak_avg) * 100
+                                        st.success(f"**Insight:** Peak months generate **{variance:.1f}% more revenue** than Off-Peak months. Baseline average is ₹{avg_rev:,.0f}/month.")
+                                
+                                with st.expander("View Peak vs Off-Peak Data"):
+                                    st.dataframe(seasonality_df, use_container_width=True)
+                            else:
+                                st.info("Not enough spanning data to show seasonality.")                   
             st.markdown("---")
             
             c1, c2 = st.columns(2)
